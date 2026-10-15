@@ -44,6 +44,8 @@ data class RomConfigDto(
     val retroAchievementsEnabled: Boolean? = null,
     @SerializedName("iconSource")
     val iconSource: RomIconSource? = null,
+    @SerializedName("dsiProfileId")
+    val dsiProfileId: String? = null,
 ) {
 
     companion object {
@@ -65,6 +67,7 @@ data class RomConfigDto(
                 romConfig.retroArchShaderParameters,
                 romConfig.retroAchievementsEnabled,
                 romConfig.iconSource,
+                romConfig.dsiProfileId,
             )
         }
     }
@@ -87,6 +90,7 @@ data class RomConfigDto(
             retroArchShaderParameters = retroArchShaderParameters,
             retroAchievementsEnabled = retroAchievementsEnabled,
             iconSource = iconSource ?: RomIconSource.DEFAULT,
+            dsiProfileId = dsiProfileId,
         )
     }
 }

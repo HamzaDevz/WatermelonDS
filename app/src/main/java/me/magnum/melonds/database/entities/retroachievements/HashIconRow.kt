@@ -10,4 +10,5 @@ import androidx.room.ColumnInfo
 data class HashIconRow(
     @ColumnInfo(name = "hash") val hash: String,
     @ColumnInfo(name = "iconUrl") val iconUrl: String,
+    @ColumnInfo(name = "hasAchievements") val hasAchievements: Boolean?,
 )

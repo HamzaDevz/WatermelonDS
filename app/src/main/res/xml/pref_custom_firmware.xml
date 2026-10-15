@@ -32,11 +32,10 @@
             app:iconSpaceReserved="false"
             app:consoleType="ds" />
 
-    <me.magnum.melonds.ui.settings.preferences.BiosDirectoryPickerPreference
-            android:key="dsi_bios_dir"
-            android:title="@string/dsi_bios_directory"
-            app:iconSpaceReserved="false"
-            app:consoleType="dsi" />
+    <Preference
+            android:key="dsi_profiles"
+            android:title="@string/dsi_profiles"
+            app:iconSpaceReserved="false" />
 
     <SwitchPreference
             android:key="custom_randomize_mac_address"

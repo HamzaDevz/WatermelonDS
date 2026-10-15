@@ -95,6 +95,9 @@ fun DSiWareManagerScreen(
     onBackClick: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val profiles by viewModel.profiles.collectAsState()
+    val selectedProfile by viewModel.selectedProfile.collectAsState()
+    var showProfiles by remember { mutableStateOf(false) }
     val importingTitle = viewModel.importingTitle.collectAsState(false)
     val context = LocalContext.current
     val showingRomList = rememberSaveable(null) { mutableStateOf(false) }
@@ -118,6 +121,9 @@ fun DSiWareManagerScreen(
         title = stringResource(R.string.dsiware_manager),
         onBack = onBackClick,
         actions = {
+            androidx.compose.material.TextButton(onClick = { showProfiles = true }, enabled = !importingTitle.value) {
+                Text(selectedProfile?.name ?: stringResource(R.string.dsi_profile_select))
+            }
             if (currentState is DSiWareManagerUiState.Ready) {
                 Box(
                     modifier = Modifier
@@ -151,12 +157,29 @@ fun DSiWareManagerScreen(
                     contentPadding = padding,
                     titles = currentState.titles,
                     onDeleteTitle = viewModel::deleteTitle,
-                    onImportTitleFile = importTitleFilePickLauncher::launch,
-                    onExportTitleFile = exportTitleFilePickLauncher::launch,
+                    onImportTitleFile = { title, fileType ->
+                        viewModel.prepareFileOperation()
+                        importTitleFilePickLauncher.launch(title, fileType)
+                    },
+                    onExportTitleFile = { title, fileType ->
+                        viewModel.prepareFileOperation()
+                        exportTitleFilePickLauncher.launch(title, fileType)
+                    },
                     retrieveTitleIcon = viewModel::getTitleIcon,
                 )
             }
             is DSiWareManagerUiState.Error -> Error(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize())
+        }
+    }
+
+    if (showProfiles) {
+        ConsoleActionDialog(title = stringResource(R.string.dsi_profiles), onDismiss = { showProfiles = false }) {
+            profiles.profiles.forEach { profile ->
+                ConsoleActionRow(label = profile.name) {
+                    showProfiles = false
+                    viewModel.selectProfile(profile.id)
+                }
+            }
         }
     }
 
@@ -167,10 +190,12 @@ fun DSiWareManagerScreen(
         ) {
             ConsoleActionRow(label = stringResource(R.string.dsiware_import_from_file)) {
                 showImportMenu = false
+                viewModel.prepareFileOperation()
                 importTitleLauncher.launch(null to arrayOf("*/*"))
             }
             ConsoleActionRow(label = stringResource(R.string.dsiware_import_from_rom_list)) {
                 showImportMenu = false
+                viewModel.prepareFileOperation()
                 showingRomList.value = true
             }
         }

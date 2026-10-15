@@ -1513,10 +1513,11 @@ bool CopyCompositedFrameToScreenshot(
     if (sourceHeight < bottomYOffset + (kScreenshotScreenHeight * scale))
         return false;
 
+    const int centerOffset = scale / 2;
     for (int y = 0; y < kScreenshotScreenHeight; y++)
     {
-        const u32* sourceTopLine = sourcePixels + static_cast<size_t>(y * scale) * static_cast<size_t>(sourceWidth);
-        const u32* sourceBottomLine = sourcePixels + static_cast<size_t>(bottomYOffset + (y * scale)) * static_cast<size_t>(sourceWidth);
+        const u32* sourceTopLine = sourcePixels + static_cast<size_t>(y * scale + centerOffset) * static_cast<size_t>(sourceWidth);
+        const u32* sourceBottomLine = sourcePixels + static_cast<size_t>(bottomYOffset + (y * scale) + centerOffset) * static_cast<size_t>(sourceWidth);
         u32* destinationTopLine = destinationPixels + static_cast<size_t>(y) * static_cast<size_t>(kScreenshotScreenWidth);
         u32* destinationBottomLine = destinationPixels
             + static_cast<size_t>(kScreenshotScreenWidth) * static_cast<size_t>(kScreenshotScreenHeight)
@@ -1524,8 +1525,8 @@ bool CopyCompositedFrameToScreenshot(
 
         for (int x = 0; x < kScreenshotScreenWidth; x++)
         {
-            destinationTopLine[x] = sourceTopLine[x * scale];
-            destinationBottomLine[x] = sourceBottomLine[x * scale];
+            destinationTopLine[x] = sourceTopLine[x * scale + centerOffset];
+            destinationBottomLine[x] = sourceBottomLine[x * scale + centerOffset];
         }
     }
 
@@ -3454,6 +3455,9 @@ u32 MelonInstance::runFrame(bool frameskipSolicitado)
         vulkanQ4Frames++;
     }
     recordSetupPhase(vulkanSetupAcquireCpuWindow);
+
+    if (renderFrame == nullptr && frameBackend == FrameBackend::OpenGlTexture)
+        return 0;
 
     prepareRenderFrame(renderFrame);
     if (renderFrame != nullptr)

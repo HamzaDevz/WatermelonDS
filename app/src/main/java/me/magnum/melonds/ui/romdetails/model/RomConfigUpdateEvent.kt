@@ -10,6 +10,7 @@ import me.magnum.melonds.domain.model.rom.config.RuntimeMicSource
 import java.util.UUID
 
 sealed class RomConfigUpdateEvent {
+    data class DSiProfileUpdate(val profileId: String?) : RomConfigUpdateEvent()
     data class IconSourceUpdate(val iconSource: RomIconSource) : RomConfigUpdateEvent()
     data class RuntimeConsoleUpdate(val newRuntimeConsole: RuntimeConsoleType) : RomConfigUpdateEvent()
     data class RuntimeMicSourceUpdate(val newRuntimeMicSource: RuntimeMicSource) : RomConfigUpdateEvent()

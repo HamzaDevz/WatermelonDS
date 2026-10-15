@@ -2,6 +2,7 @@ package me.magnum.melonds.impl
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -9,25 +10,21 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.magnum.melonds.MelonDSiNand
 import me.magnum.melonds.common.suspendRunCatching
-import me.magnum.melonds.domain.model.ConfigurationDirResult
+import me.magnum.melonds.domain.model.EmulatorConfiguration
 import me.magnum.melonds.domain.model.DSiWareTitle
 import me.magnum.melonds.domain.model.dsinand.DSiWareTitleFileType
 import me.magnum.melonds.domain.model.dsinand.ImportDSiWareTitleResult
 import me.magnum.melonds.domain.model.dsinand.OpenDSiNandResult
 import me.magnum.melonds.domain.repositories.DSiWareMetadataRepository
-import me.magnum.melonds.domain.repositories.SettingsRepository
-import me.magnum.melonds.domain.services.ConfigurationDirectoryVerifier
 import me.magnum.melonds.domain.services.DSiNandManager
 import java.io.EOFException
+import java.io.File
 import java.io.InputStream
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 class AndroidDSiNandManager(
     private val context: Context,
-    private val settingsRepository: SettingsRepository,
     private val dsiWareMetadataRepository: DSiWareMetadataRepository,
-    private val biosDirectoryVerifier: ConfigurationDirectoryVerifier,
 ) : DSiNandManager {
 
     private companion object {
@@ -38,26 +35,55 @@ class AndroidDSiNandManager(
     }
 
     private val nandControlLock = Mutex()
-    private val nandUsageCount = AtomicInteger(0)
+    private val nandSessionLock = Mutex()
     private val isNandOpen = AtomicBoolean(false)
 
-    override suspend fun openNand(): OpenDSiNandResult {
-        return nandControlLock.withLock {
-            if (isNandOpen.get()) {
-                nandUsageCount.incrementAndGet()
-                return OpenDSiNandResult.NAND_ALREADY_OPEN
-            }
-            val dsiDirectoryStatus = biosDirectoryVerifier.checkDsiConfigurationDirectory()
-            if (dsiDirectoryStatus.status != ConfigurationDirResult.Status.VALID) {
-                return OpenDSiNandResult.INVALID_DSI_SETUP
-            }
+    override fun acquireSession(): DSiNandManager.Session? {
+        val session = NandSession()
+        return session.takeIf { nandSessionLock.tryLock(it) }
+    }
 
-            val result = MelonDSiNand.openNand(settingsRepository.getEmulatorConfiguration())
-            mapOpenNandReturnCodeToResult(result).also {
-                if (!it.isFailure()) {
-                    if (nandUsageCount.getAndIncrement() == 0) {
-                        isNandOpen.set(true)
+    private inner class NandSession : DSiNandManager.Session {
+        private val closed = AtomicBoolean(false)
+        private val released = AtomicBoolean(false)
+        private val operationLock = Mutex()
+
+        override suspend fun <T> withNand(configuration: EmulatorConfiguration, block: suspend DSiNandManager.() -> T): T? {
+            return try {
+                operationLock.withLock {
+                    check(!closed.get())
+                    if (configuration.dsiBios7Uri == null || configuration.dsiNandUri == null) return@withLock null
+                    val started = SystemClock.elapsedRealtimeNanos()
+                    val result = mapOpenNandReturnCodeToResult(MelonDSiNand.openNand(configuration))
+                    if (result != OpenDSiNandResult.SUCCESS) {
+                        Log.w(TAG, "Unable to open selected NAND: $result")
+                        return@withLock null
                     }
+                    isNandOpen.set(true)
+                    try {
+                        block(this@AndroidDSiNandManager)
+                    } finally {
+                        isNandOpen.set(false)
+                        MelonDSiNand.closeNand()
+                        Log.i(TAG, "DSiProfileNand: uri=${configuration.dsiNandUri} durationUs=${(SystemClock.elapsedRealtimeNanos() - started) / 1000}")
+                    }
+                }
+            } finally {
+                if (closed.get()) release()
+            }
+        }
+
+        private fun release() {
+            if (released.compareAndSet(false, true)) nandSessionLock.unlock(this)
+        }
+
+        override fun close() {
+            closed.set(true)
+            if (operationLock.tryLock()) {
+                try {
+                    release()
+                } finally {
+                    operationLock.unlock()
                 }
             }
         }
@@ -169,7 +195,13 @@ class AndroidDSiNandManager(
             return false
         }
 
-        return MelonDSiNand.importTitleFile((title.titleId and 0xFFFFFFFF).toInt(), fileType.ordinal, fileUri.toString())
+        return withTemporaryTitleFile { snapshot ->
+            context.contentResolver.openInputStream(fileUri)?.use { input ->
+                snapshot.outputStream().use { output -> input.copyTo(output) }
+            } ?: return@withTemporaryTitleFile false
+            if (snapshot.length() == 0L) return@withTemporaryTitleFile false
+            MelonDSiNand.importTitleFile((title.titleId and 0xFFFFFFFF).toInt(), fileType.ordinal, snapshot.absolutePath)
+        }
     }
 
     override suspend fun exportTitleFile(title: DSiWareTitle, fileType: DSiWareTitleFileType, fileUri: Uri): Boolean = nandControlLock.withLock {
@@ -177,13 +209,25 @@ class AndroidDSiNandManager(
             return false
         }
 
-        return MelonDSiNand.exportTitleFile((title.titleId and 0xFFFFFFFF).toInt(), fileType.ordinal, fileUri.toString())
+        return withTemporaryTitleFile { snapshot ->
+            if (!MelonDSiNand.exportTitleFile((title.titleId and 0xFFFFFFFF).toInt(), fileType.ordinal, snapshot.absolutePath)) {
+                return@withTemporaryTitleFile false
+            }
+            context.contentResolver.openOutputStream(fileUri, "wt")?.use { output ->
+                snapshot.inputStream().use { input -> input.copyTo(output) }
+            } != null
+        }
     }
 
-    override fun closeNand() {
-        if (nandUsageCount.decrementAndGet() == 0) {
-            isNandOpen.set(false)
-            MelonDSiNand.closeNand()
+    private inline fun withTemporaryTitleFile(operation: (File) -> Boolean): Boolean {
+        val snapshot = File.createTempFile("dsi-title-data-", ".tmp", context.cacheDir)
+        return try {
+            operation(snapshot)
+        } catch (exception: Exception) {
+            Log.w(TAG, "Unable to transfer selected DSiWare data file", exception)
+            false
+        } finally {
+            snapshot.delete()
         }
     }
 

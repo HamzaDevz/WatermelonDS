@@ -5,8 +5,11 @@ enum class RomIconSource {
     NATIVE,
     RETRO_ACHIEVEMENTS;
 
-    fun usesRetroAchievements(globalEnabled: Boolean): Boolean = when (this) {
-        DEFAULT -> globalEnabled
+    fun resolve(globalCoversEnabled: Boolean): RomIconSource =
+        if (this == DEFAULT && !globalCoversEnabled) NATIVE else this
+
+    fun usesRetroAchievements(globalEnabled: Boolean, hasAchievements: Boolean?): Boolean = when (this) {
+        DEFAULT -> globalEnabled && hasAchievements != false
         NATIVE -> false
         RETRO_ACHIEVEMENTS -> true
     }

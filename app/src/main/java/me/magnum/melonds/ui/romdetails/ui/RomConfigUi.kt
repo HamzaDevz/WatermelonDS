@@ -108,6 +108,7 @@ private fun Content(
     val resources = LocalResources.current
     val renameDialogState = rememberTextInputDialogState()
     val iconSourceDialogState = rememberSingleChoiceDialogState<RomIconSource>()
+    val dsiProfileDialogState = rememberSingleChoiceDialogState<String?>()
     val consoleDialogState = rememberSingleChoiceDialogState<RuntimeConsoleType>()
     val micDialogState = rememberSingleChoiceDialogState<RuntimeMicSource>()
     val inputModeDialogState = rememberSingleChoiceDialogState<RomInputMode>()
@@ -267,6 +268,27 @@ private fun Content(
                         },
                         selected = romConfig.runtimeConsoleType,
                         onSelect = { onConfigUpdate(RomConfigUpdateEvent.RuntimeConsoleUpdate(it)) },
+                    )
+                },
+            )
+            ConfigRow(
+                title = stringResource(R.string.dsi_profile_select),
+                value = if (romConfig.dsiProfileId == null) {
+                    useGlobalWithValue(romConfig.dsiProfiles.resolve()?.name ?: stringResource(R.string.not_set))
+                } else {
+                    romConfig.dsiProfiles.resolve(romConfig.dsiProfileId)?.name ?: stringResource(R.string.dsi_profile_missing)
+                },
+                showDivider = true,
+                onClick = {
+                    dsiProfileDialogState.show(
+                        title = resources.getString(R.string.dsi_profile_select),
+                        items = listOf(null) + romConfig.dsiProfiles.profiles.map { it.id },
+                        labelOf = { id ->
+                            if (id == null) useGlobalWithValue(romConfig.dsiProfiles.resolve()?.name ?: resources.getString(R.string.not_set))
+                            else romConfig.dsiProfiles.resolve(id)?.name ?: resources.getString(R.string.dsi_profile_missing)
+                        },
+                        selected = romConfig.dsiProfileId,
+                        onSelect = { onConfigUpdate(RomConfigUpdateEvent.DSiProfileUpdate(it)) },
                     )
                 },
             )
@@ -530,6 +552,7 @@ private fun Content(
     )
     SingleChoiceDialog(consoleDialogState)
     SingleChoiceDialog(iconSourceDialogState)
+    SingleChoiceDialog(dsiProfileDialogState)
     SingleChoiceDialog(micDialogState)
     SingleChoiceDialog(inputModeDialogState)
     SingleChoiceDialog(gbaSlotDialogState)

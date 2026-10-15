@@ -395,7 +395,7 @@ fun ExternalIdleInfo() {
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.fillMaxSize().padding(horizontal = 60.dp, vertical = 30.dp),
     ) {
-        WatermelonMark(height = 48.dp)
+        WatermelonMark(width = 84.dp)
         Row(modifier = Modifier.padding(top = 16.dp)) {
             Text(
                 text = stringResource(R.string.app_brand_watermelon),

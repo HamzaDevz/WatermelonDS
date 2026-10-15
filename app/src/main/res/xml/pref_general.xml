@@ -72,4 +72,11 @@
             android:title="@string/restore_settings"
             app:isPreferenceVisible="@bool/settings_backup_restore_enabled"
             app:iconSpaceReserved="false" />
+    <SwitchPreference
+            android:key="use_alt_app_icon"
+            android:title="@string/use_alt_app_icon"
+            android:summary="@string/use_alt_app_icon_summary"
+            android:persistent="false"
+            android:order="2147483646"
+            app:iconSpaceReserved="false" />
 </PreferenceScreen>

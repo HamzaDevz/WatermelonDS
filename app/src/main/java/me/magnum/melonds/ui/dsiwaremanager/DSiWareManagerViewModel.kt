@@ -2,7 +2,10 @@ package me.magnum.melonds.ui.dsiwaremanager
 
 import android.net.Uri
 import androidx.core.graphics.createBitmap
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.CancellationException
+import me.magnum.melonds.domain.model.DSiProfile
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +16,6 @@ import kotlinx.coroutines.withContext
 import me.magnum.melonds.domain.model.ConfigurationDirResult
 import me.magnum.melonds.domain.model.DSiWareTitle
 import me.magnum.melonds.domain.model.dsinand.ImportDSiWareTitleResult
-import me.magnum.melonds.domain.model.dsinand.OpenDSiNandResult
 import me.magnum.melonds.domain.repositories.SettingsRepository
 import me.magnum.melonds.domain.services.ConfigurationDirectoryVerifier
 import me.magnum.melonds.domain.services.DSiNandManager
@@ -29,6 +31,7 @@ class DSiWareManagerViewModel @Inject constructor(
     private val dsiNandManager: DSiNandManager,
     private val settingsRepository: SettingsRepository,
     private val configurationDirectoryVerifier: ConfigurationDirectoryVerifier,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<DSiWareManagerUiState>(DSiWareManagerUiState.Loading)
@@ -43,64 +46,75 @@ class DSiWareManagerViewModel @Inject constructor(
     private val _importExportFileEvent = MutableSharedFlow<ImportExportDSiWareTitleFileEvent>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     val importExportFileEvent: SharedFlow<ImportExportDSiWareTitleFileEvent> = _importExportFileEvent.asSharedFlow()
 
+    val profiles = settingsRepository.observeDsiProfileSettings()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settingsRepository.getDsiProfileSettings())
+    private val _selectedProfile = MutableStateFlow(settingsRepository.getDsiProfile(savedStateHandle["dsi_profile_id"]))
+    val selectedProfile: StateFlow<DSiProfile?> = _selectedProfile.asStateFlow()
+
     init {
-        loadDSiWareData()
+        revalidateBiosConfiguration()
     }
 
-    fun importTitleToNand(titleUri: Uri) {
-        _importingTitle.value = true
+    fun selectProfile(profileId: String) {
+        if (_importingTitle.value) return
+        savedStateHandle["dsi_profile_id"] = profileId
+        _selectedProfile.value = settingsRepository.getDsiProfile(profileId)
+        revalidateBiosConfiguration()
+    }
 
-        viewModelScope.launch {
-            withContext(Dispatchers.Default) {
-                val result = dsiNandManager.importTitle(titleUri)
-                if (result == ImportDSiWareTitleResult.SUCCESS) {
-                    val titles = dsiNandManager.listTitles()
-                    _state.value = DSiWareManagerUiState.Ready(titles)
-                } else {
-                    _importTitleError.tryEmit(result)
-                }
-                _importingTitle.value = false
-            }
+    fun prepareFileOperation() {
+        savedStateHandle["pending_dsi_profile"] = _selectedProfile.value
+    }
+
+    private fun takeFileProfile(): DSiProfile? = savedStateHandle.remove("pending_dsi_profile")
+
+    fun importTitleToNand(titleUri: Uri) {
+        runOperation(takeFileProfile()) {
+            val result = importTitle(titleUri)
+            if (result != ImportDSiWareTitleResult.SUCCESS) _importTitleError.tryEmit(result)
         }
     }
 
     fun deleteTitle(title: DSiWareTitle) {
-        viewModelScope.launch {
-            withContext(Dispatchers.Default) {
-                dsiNandManager.deleteTitle(title)
-                val titles = dsiNandManager.listTitles()
-                _state.value = DSiWareManagerUiState.Ready(titles)
-            }
-        }
+        runOperation(_selectedProfile.value) { deleteTitle(title) }
     }
 
     fun importDSiWareTitleFile(title: DSiWareTitle, fileType: DSiWareTitleFileType, fileUri: Uri) {
-        _importingTitle.value = true
-
-        viewModelScope.launch {
-            withContext(Dispatchers.Default) {
-                val success = dsiNandManager.importTitleFile(title, fileType, fileUri)
-                if (success) {
-                    _importExportFileEvent.tryEmit(ImportExportDSiWareTitleFileEvent.ImportSuccess(fileType.fileName))
-                } else {
-                    _importExportFileEvent.tryEmit(ImportExportDSiWareTitleFileEvent.ImportError)
-                }
-                _importingTitle.value = false
-            }
+        runOperation(takeFileProfile()) {
+            val success = importTitleFile(title, fileType, fileUri)
+            _importExportFileEvent.tryEmit(if (success) ImportExportDSiWareTitleFileEvent.ImportSuccess(fileType.fileName) else ImportExportDSiWareTitleFileEvent.ImportError)
         }
     }
 
     fun exportDSiWareTitleFile(title: DSiWareTitle, fileType: DSiWareTitleFileType, fileUri: Uri) {
-        _importingTitle.value = true
+        runOperation(takeFileProfile()) {
+            val success = exportTitleFile(title, fileType, fileUri)
+            _importExportFileEvent.tryEmit(if (success) ImportExportDSiWareTitleFileEvent.ExportSuccess(fileType.fileName) else ImportExportDSiWareTitleFileEvent.ExportError)
+        }
+    }
 
+    private fun runOperation(profile: DSiProfile?, operation: suspend DSiNandManager.() -> Unit) {
+        if (_importingTitle.value) return
+        _importingTitle.value = true
         viewModelScope.launch {
-            withContext(Dispatchers.Default) {
-                val success = dsiNandManager.exportTitleFile(title, fileType, fileUri)
-                if (success) {
-                    _importExportFileEvent.tryEmit(ImportExportDSiWareTitleFileEvent.ExportSuccess(fileType.fileName))
-                } else {
-                    _importExportFileEvent.tryEmit(ImportExportDSiWareTitleFileEvent.ExportError)
+            try {
+                withContext(Dispatchers.IO) {
+                    val validation = configurationDirectoryVerifier.checkDsiConfigurationDirectory(profile)
+                    if (validation.status != ConfigurationDirResult.Status.VALID) {
+                        _state.value = DSiWareManagerUiState.DSiSetupInvalid(validation.status)
+                        return@withContext
+                    }
+                    val configuration = settingsRepository.getEmulatorConfiguration(profile)
+                    val titles = dsiNandManager.withNand(configuration) {
+                        operation()
+                        listTitles()
+                    }
+                    _state.value = titles?.let { DSiWareManagerUiState.Ready(it) } ?: DSiWareManagerUiState.Error
                 }
+            } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
+                _state.value = DSiWareManagerUiState.Error
+            } finally {
                 _importingTitle.value = false
             }
         }
@@ -115,37 +129,9 @@ class DSiWareManagerViewModel @Inject constructor(
     }
 
     fun revalidateBiosConfiguration() {
+        if (_importingTitle.value) return
+        _selectedProfile.value = settingsRepository.getDsiProfile(savedStateHandle["dsi_profile_id"])
         _state.value = DSiWareManagerUiState.Loading
-        loadDSiWareData()
-    }
-
-    private fun loadDSiWareData() {
-        val dsiConfiguration = configurationDirectoryVerifier.checkDsiConfigurationDirectory()
-        if (dsiConfiguration.status != ConfigurationDirResult.Status.VALID) {
-            _state.value = DSiWareManagerUiState.DSiSetupInvalid(dsiConfiguration.status)
-        } else {
-            viewModelScope.launch {
-                withContext(Dispatchers.Default) {
-                    val openNandResult = dsiNandManager.openNand()
-                    if (openNandResult.isSuccess()) {
-                        val titles = dsiNandManager.listTitles()
-                        withContext(Dispatchers.Main) {
-                            _state.value = DSiWareManagerUiState.Ready(titles)
-                        }
-                    } else {
-                        // All pre-requirements are validate beforehand and no unexpected error should occur. As such,
-                        // there's no point in providing a detailed description of the error to the UI.
-                        withContext(Dispatchers.Main) {
-                            _state.value = DSiWareManagerUiState.Error
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        dsiNandManager.closeNand()
+        runOperation(_selectedProfile.value) { }
     }
 }

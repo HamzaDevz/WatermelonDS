@@ -1,5 +1,6 @@
 package me.magnum.melonds.parcelables
 
+import me.magnum.melonds.domain.model.DSiProfile
 import android.os.Parcel
 import android.os.Parcelable
 import androidx.core.net.toUri
@@ -42,6 +43,7 @@ class RomParcelable : Parcelable {
             totalPlayTime,
             installedDsiWareTitleId = installedDsiWareTitleId,
             installedDsiWareIcon = installedDsiWareIcon,
+            resolvedDsiProfile = parcel.parcelable<DSiProfile>(),
         )
     }
 
@@ -58,6 +60,7 @@ class RomParcelable : Parcelable {
         dest.writeLong(rom.totalPlayTime.inWholeMilliseconds)
         dest.writeLong(rom.installedDsiWareTitleId ?: -1L)
         dest.writeByteArray(rom.installedDsiWareIcon)
+        dest.writeParcelable(rom.resolvedDsiProfile, flags)
     }
 
     override fun describeContents(): Int {

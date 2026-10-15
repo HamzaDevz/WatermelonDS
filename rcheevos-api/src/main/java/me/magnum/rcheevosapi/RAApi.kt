@@ -373,9 +373,9 @@ class RAApi(
         errorHandler: (String?) -> Unit = { throw UnsuccessfulRequestException(it ?: "Unknown reason") },
         clearTokenOnUnauthorized: Boolean = true,
     ): Result<T> = withContext(Dispatchers.IO) {
-        val request = buildGetRequest(parameters)
-        val requestAuthentication = getRequestAuthentication(parameters)
         suspendRunCatching {
+            val request = buildGetRequest(parameters)
+            val requestAuthentication = getRequestAuthentication(parameters)
             executeRequest(request, requestAuthentication, clearTokenOnUnauthorized)
         }.suspendMapCatching { response ->
             response.use {
@@ -397,9 +397,9 @@ class RAApi(
         parameters: Map<String, String>,
         errorHandler: (String?) -> Unit = { throw UnsuccessfulRequestException(it ?: "Unknown reason") },
     ): Result<T> = withContext(Dispatchers.IO) {
-        val request = buildPostRequest(parameters)
-        val requestAuthentication = getRequestAuthentication(parameters)
         suspendRunCatching {
+            val request = buildPostRequest(parameters)
+            val requestAuthentication = getRequestAuthentication(parameters)
             executeRequest(request, requestAuthentication)
         }.suspendMapCatching { response ->
             response.use {

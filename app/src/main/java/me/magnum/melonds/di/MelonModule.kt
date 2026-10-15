@@ -106,8 +106,8 @@ object MelonModule {
 
     @Provides
     @Singleton
-    fun provideSaveStatesRepository(settingsRepository: SettingsRepository, saveStateScreenshotProvider: SaveStateScreenshotProvider, uriHandler: UriHandler): SaveStatesRepository {
-        return FileSystemSaveStatesRepository(settingsRepository, saveStateScreenshotProvider, uriHandler)
+    fun provideSaveStatesRepository(settingsRepository: SettingsRepository, saveStateScreenshotProvider: SaveStateScreenshotProvider, uriHandler: UriHandler, @ApplicationContext context: Context): SaveStatesRepository {
+        return FileSystemSaveStatesRepository(settingsRepository, saveStateScreenshotProvider, uriHandler, context)
     }
 
     @Provides
@@ -265,11 +265,9 @@ object MelonModule {
     @Singleton
     fun provideDSiNandManager(
         @ApplicationContext context: Context,
-        settingsRepository: SettingsRepository,
         dSiWareMetadataRepository: DSiWareMetadataRepository,
-        configurationDirectoryVerifier: ConfigurationDirectoryVerifier
     ): DSiNandManager {
-        return AndroidDSiNandManager(context, settingsRepository, dSiWareMetadataRepository, configurationDirectoryVerifier)
+        return AndroidDSiNandManager(context, dSiWareMetadataRepository)
     }
 
     @Provides

@@ -66,6 +66,34 @@ constexpr u32 kMaxRetroArchNativeDisplayScale = 8u;
 constexpr size_t kPrewarmedRetroArchSurfaceCount = 3u;
 std::atomic<u64> gNextPresenterEpoch{1};
 
+VkSurfaceTransformFlagBitsKHR chooseSurfaceTransform(const VkSurfaceCapabilitiesKHR& capabilities)
+{
+    return (capabilities.currentTransform == VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+        || capabilities.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR
+        || capabilities.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR
+        || capabilities.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR)
+        ? capabilities.currentTransform
+        : ((capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+            ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+            : capabilities.currentTransform);
+}
+
+VkExtent2D chooseLogicalExtent(const VkSurfaceCapabilitiesKHR& capabilities, ANativeWindow* window, u32 width, u32 height)
+{
+    if ((width == 0 || height == 0) && capabilities.currentExtent.width != UINT32_MAX)
+        return capabilities.currentExtent;
+
+    if (width == 0)
+        width = static_cast<u32>(std::max(1, ANativeWindow_getWidth(window)));
+    if (height == 0)
+        height = static_cast<u32>(std::max(1, ANativeWindow_getHeight(window)));
+
+    return {
+        std::clamp(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+        std::clamp(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)
+    };
+}
+
 u64 allocatePresenterEpoch()
 {
     u64 epoch = gNextPresenterEpoch.fetch_add(1, std::memory_order_relaxed);
@@ -2751,30 +2779,10 @@ bool VulkanSurfacePresenter::ensureSwapchain(SurfaceState& surfaceState)
     std::vector<VkPresentModeKHR> rankedPresentModes = rankPresentModes(presentModes);
     const u64 createLoopStartNs = PerfNowNs();
 
-    u32 width = surfaceState.requestedWidth > 0 ? surfaceState.requestedWidth : static_cast<u32>(std::max(1, ANativeWindow_getWidth(surfaceState.window)));
-    u32 height = surfaceState.requestedHeight > 0 ? surfaceState.requestedHeight : static_cast<u32>(std::max(1, ANativeWindow_getHeight(surfaceState.window)));
-
-    VkExtent2D extent{};
-    if (capabilities.currentExtent.width != UINT32_MAX)
-    {
-        extent = capabilities.currentExtent;
-    }
-    else
-    {
-        extent.width = std::clamp(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-        extent.height = std::clamp(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-    }
-
-    const VkExtent2D logicalExtent = extent;
-    const VkSurfaceTransformFlagBitsKHR preTransform =
-        (capabilities.currentTransform == VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
-            || capabilities.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR
-            || capabilities.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR
-            || capabilities.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR)
-            ? capabilities.currentTransform
-            : ((capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
-                ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
-                : capabilities.currentTransform);
+    const VkExtent2D logicalExtent = chooseLogicalExtent(
+        capabilities, surfaceState.window, surfaceState.requestedWidth, surfaceState.requestedHeight);
+    VkExtent2D extent = logicalExtent;
+    const VkSurfaceTransformFlagBitsKHR preTransform = chooseSurfaceTransform(capabilities);
     if (preTransform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR
         || preTransform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR)
         std::swap(extent.width, extent.height);
@@ -3634,13 +3642,15 @@ void VulkanSurfacePresenter::logPerformanceIfNeeded()
             continue;
         melonDS::Platform::Log(
             melonDS::Platform::LogLevel::Warn,
-            "VulkanPerf[P2]: surface=%d preTransform=%d extent=%ux%u logical=%ux%u swapchainCreations=%llu suboptimalQueries=%llu",
+            "VulkanPerf[P2]: surface=%d preTransform=%d extent=%ux%u logical=%ux%u requested=%ux%u swapchainCreations=%llu suboptimalQueries=%llu",
             surfaceState.id,
             static_cast<int>(surfaceState.preTransform),
             surfaceState.extent.width,
             surfaceState.extent.height,
             surfaceState.logicalExtent.width,
             surfaceState.logicalExtent.height,
+            surfaceState.requestedWidth,
+            surfaceState.requestedHeight,
             static_cast<unsigned long long>(swapchainCreations),
             static_cast<unsigned long long>(presentSuboptimalQueries));
     }
@@ -6040,16 +6050,15 @@ bool VulkanSurfacePresenter::submitSurfaceCommands(
 
     if (presentResult == VK_SUBOPTIMAL_KHR)
     {
-
-        if (surfaceState.preTransform != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+        VkSurfaceCapabilitiesKHR capabilities{};
+        presentSuboptimalQueries++;
+        if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surfaceState.surface, &capabilities) == VK_SUCCESS)
         {
-            VkSurfaceCapabilitiesKHR capabilities{};
-            presentSuboptimalQueries++;
-            if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surfaceState.surface, &capabilities) == VK_SUCCESS
-                && (capabilities.currentTransform != surfaceState.preTransform
-                    || (capabilities.currentExtent.width != UINT32_MAX
-                        && (capabilities.currentExtent.width != surfaceState.logicalExtent.width
-                            || capabilities.currentExtent.height != surfaceState.logicalExtent.height))))
+            const VkExtent2D logicalExtent = chooseLogicalExtent(
+                capabilities, surfaceState.window, surfaceState.requestedWidth, surfaceState.requestedHeight);
+            if (chooseSurfaceTransform(capabilities) != surfaceState.preTransform
+                || logicalExtent.width != surfaceState.logicalExtent.width
+                || logicalExtent.height != surfaceState.logicalExtent.height)
             {
                 surfaceState.swapchainDirty = true;
                 surfaceState.vertexBufferDirty = true;

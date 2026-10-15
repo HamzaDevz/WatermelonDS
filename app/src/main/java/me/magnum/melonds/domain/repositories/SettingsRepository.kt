@@ -8,14 +8,22 @@ import me.magnum.melonds.domain.model.*
 import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.DSiProfile
+import me.magnum.melonds.domain.model.DSiProfileSettings
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.retroachievements.RetroAchievementsOfflineBackend
 import me.magnum.melonds.ui.Theme
 import java.util.UUID
 
 interface SettingsRepository {
-    suspend fun getEmulatorConfiguration(): EmulatorConfiguration
-    suspend fun getEmulatorConfiguration(romConfig: RomConfig): EmulatorConfiguration
+    suspend fun getEmulatorConfiguration(dsiProfile: DSiProfile? = getDsiProfile()): EmulatorConfiguration
+    suspend fun getEmulatorConfiguration(romConfig: RomConfig, dsiProfile: DSiProfile? = getDsiProfile(romConfig.dsiProfileId)): EmulatorConfiguration
+    fun getDsiProfileSettings(): DSiProfileSettings
+    fun observeDsiProfileSettings(): Flow<DSiProfileSettings>
+    fun getDsiProfile(profileId: String? = null): DSiProfile? = getDsiProfileSettings().resolve(profileId)
+    fun saveDsiProfile(profile: DSiProfile)
+    fun removeDsiProfile(profileId: String)
+    fun setDefaultDsiProfile(profileId: String?)
 
     fun getTheme(): Theme
     fun getFastForwardSpeedMultiplier(): Float
@@ -48,6 +56,8 @@ interface SettingsRepository {
 
     fun isRaCoverEnabled(): Boolean
     fun observeRaCoverEnabled(): Flow<Boolean>
+    fun isRomCoverEnabled(): Boolean
+    fun observeRomCoverEnabled(): Flow<Boolean>
 
 
     fun getDefaultConsoleType(): ConsoleType

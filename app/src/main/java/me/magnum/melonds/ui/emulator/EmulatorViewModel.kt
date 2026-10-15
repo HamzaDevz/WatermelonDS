@@ -723,13 +723,13 @@ class EmulatorViewModel @Inject constructor(
 
     fun onRomLaunchValidated(rom: Rom) {
         sessionCoroutineScope.launch {
-            launchRom(refreshRomForLaunch(rom))
+            launchRom(rom)
         }
     }
 
-    fun onFirmwareLaunchValidated(consoleType: ConsoleType) {
+    fun onFirmwareLaunchValidated(consoleType: ConsoleType, dsiProfile: me.magnum.melonds.domain.model.DSiProfile?) {
         viewModelScope.launch {
-            launchFirmware(consoleType)
+            launchFirmware(consoleType, dsiProfile)
         }
     }
 
@@ -1185,7 +1185,7 @@ class EmulatorViewModel @Inject constructor(
         }
     }
 
-    private fun launchFirmware(consoleType: ConsoleType) {
+    private fun launchFirmware(consoleType: ConsoleType, dsiProfile: me.magnum.melonds.domain.model.DSiProfile?) {
         viewModelScope.launch {
             resetEmulatorState(EmulatorState.LoadingFirmware())
             startEmulatorSession(
@@ -1201,7 +1201,7 @@ class EmulatorViewModel @Inject constructor(
                 startObservingEmulatorEvents()
 
                 confirmRetroArchShaderCompile(romConfig = null)
-                val result = emulatorManager.loadFirmware(consoleType)
+                val result = emulatorManager.loadFirmware(consoleType, dsiProfile)
                 when (result) {
                     is FirmwareLaunchResult.LaunchFailed -> {
                         _emulatorState.value = EmulatorState.FirmwareLoadError(result.reason)

@@ -6,8 +6,10 @@ import kotlin.random.nextUBytes
 data class MacAddress(private val addressBytes: List<UByte>) {
     companion object {
         private val DS_MAC_PREFIX = listOf(0x0.toUByte(), 0x9.toUByte(), 0xBF.toUByte())
+        private val ADDRESS_PATTERN = Regex("[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}")
 
-        fun fromString(address: String): MacAddress {
+        fun fromString(address: String): MacAddress? {
+            if (!ADDRESS_PATTERN.matches(address)) return null
             val bytes = address.split(":").map { it.toUByte(16) }
             return MacAddress(bytes)
         }

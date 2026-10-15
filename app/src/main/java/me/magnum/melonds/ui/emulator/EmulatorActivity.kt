@@ -555,8 +555,8 @@ class EmulatorActivity : AppCompatActivity() {
                 viewModel.onRomLaunchValidated(rom)
             }
 
-            override fun onFirmwareValidated(consoleType: ConsoleType) {
-                viewModel.onFirmwareLaunchValidated(consoleType)
+            override fun onFirmwareValidated(consoleType: ConsoleType, dsiProfile: me.magnum.melonds.domain.model.DSiProfile?) {
+                viewModel.onFirmwareLaunchValidated(consoleType, dsiProfile)
             }
 
             override fun onValidationAborted() {
@@ -816,8 +816,8 @@ class EmulatorActivity : AppCompatActivity() {
                 }
             }
         }
-        binding.layoutPauseMenu.isFocusable = true
-        binding.layoutPauseMenu.isFocusableInTouchMode = true
+        binding.layoutPauseMenu.isFocusable = false
+        binding.layoutPauseMenu.isFocusableInTouchMode = false
 
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {

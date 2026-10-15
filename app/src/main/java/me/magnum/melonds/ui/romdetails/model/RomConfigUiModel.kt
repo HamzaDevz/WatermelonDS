@@ -38,4 +38,6 @@ data class RomConfigUiModel(
     val retroAchievementsEnabled: Boolean? = null,
     val globalRetroAchievementsEnabled: Boolean = true,
     val iconSource: RomIconSource = RomIconSource.DEFAULT,
+    val dsiProfileId: String? = null,
+    val dsiProfiles: me.magnum.melonds.domain.model.DSiProfileSettings = me.magnum.melonds.domain.model.DSiProfileSettings(),
 )

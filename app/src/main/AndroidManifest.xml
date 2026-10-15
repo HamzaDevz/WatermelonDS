@@ -32,6 +32,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="${appName}"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
@@ -55,12 +56,31 @@
             android:name=".ui.romlist.RomListActivity"
             android:theme="@style/SplashTheme"
             android:launchMode="singleTop"
-            android:exported="true">
+            android:exported="true" />
+        <activity-alias
+            android:name="${applicationId}.DefaultIcon"
+            android:targetActivity=".ui.romlist.RomListActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="${appName}">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name="${applicationId}.AltIcon"
+            android:targetActivity=".ui.romlist.RomListActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_alt"
+            android:label="${appName}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
         <activity
             android:name=".ui.romdetails.RomDetailsActivity"
             android:parentActivityName=".ui.romlist.RomListActivity"

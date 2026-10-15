@@ -9,9 +9,12 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceManager
 import androidx.preference.SwitchPreference
+import androidx.preference.TwoStatePreference
 import com.smp.masterswitchpreference.MasterSwitchPreference
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.magnum.melonds.R
@@ -19,6 +22,7 @@ import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.UriPermissionManager
 import me.magnum.melonds.extensions.isSustainedPerformanceModeAvailable
 import me.magnum.melonds.impl.SettingsBackupManager
+import me.magnum.melonds.ui.common.LauncherIcon
 import me.magnum.melonds.ui.settings.PreferenceFragmentHelper
 import me.magnum.melonds.ui.settings.PreferenceFragmentTitleProvider
 import me.magnum.melonds.ui.settings.preferences.StoragePickerPreference
@@ -35,6 +39,7 @@ class GeneralPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentT
 
     private lateinit var rewindPreference: MasterSwitchPreference
     private lateinit var frameLimitSpeedPreference: ListPreference
+    private var iconUpdate: Job? = null
 
     private val backupLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -112,6 +117,10 @@ class GeneralPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentT
             restoreLauncher.launch(null)
             true
         }
+        findPreference<TwoStatePreference>("use_alt_app_icon")?.setOnPreferenceChangeListener { _, value ->
+            updateIcon(value as Boolean)
+            false
+        }
     }
 
     override fun onResume() {
@@ -119,6 +128,7 @@ class GeneralPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentT
         // Set proper value for Rewind preference since the value is not updated when returning from the fragment
         rewindPreference.onPreferenceChangeListener?.onPreferenceChange(rewindPreference, rewindPreference.sharedPreferences?.getBoolean(rewindPreference.key, false))
         updateFrameLimitSpeedPreferenceState()
+        updateIcon()
     }
 
     override fun onDestroy() {
@@ -127,6 +137,39 @@ class GeneralPreferencesFragment : BasePreferenceFragment(), PreferenceFragmentT
     }
 
     override fun getTitle() = getString(R.string.category_general)
+
+    private fun updateIcon(alternative: Boolean? = null) {
+        if (iconUpdate?.isActive == true) return
+        val preference = findPreference<TwoStatePreference>("use_alt_app_icon") ?: return
+        val context = requireContext().applicationContext
+        preference.isEnabled = false
+        iconUpdate = viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                var changeFailed = false
+                preference.isChecked = withContext(Dispatchers.IO) {
+                    if (alternative != null) {
+                        try {
+                            LauncherIcon.setAlternative(context, alternative)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            changeFailed = true
+                        }
+                    }
+                    LauncherIcon.isAlternative(context)
+                }
+                if (changeFailed) {
+                    Toast.makeText(context, R.string.app_icon_change_failed, Toast.LENGTH_LONG).show()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Toast.makeText(context, R.string.app_icon_change_failed, Toast.LENGTH_LONG).show()
+            } finally {
+                preference.isEnabled = true
+            }
+        }
+    }
 
     private val sharedPreferenceChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "ra_hardcore_enabled" || key == frameLimitSpeedPreference.key) {

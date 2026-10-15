@@ -234,6 +234,8 @@
     <string name="rom_icon_filtering">Icon filtering</string>
     <string name="rom_view_mode">Default ROM list view</string>
     <string name="rom_ra_cover_enabled">Use RetroAchievements badge as cover</string>
+    <string name="rom_covers_enabled">Use cover art in ROM library</string>
+    <string name="rom_covers_enabled_summary">Turn off to show native DS/DSi icons. Individual game icon choices take priority.</string>
     <string name="rom_ra_cover_enabled_summary">Show the official RetroAchievements game badge as the ROM cover. The badge appears once you\'ve opened the ROM at least once with a RetroAchievements session active.</string>
     <string name="rom_view_mode_grid">Grid</string>
     <string name="rom_view_mode_list">List</string>
@@ -307,6 +309,7 @@
     <string name="dsi_bios_directory">DSi BIOS directory</string>
     <string name="show_boot_screen">Show boot screen</string>
     <string name="mac_address">MAC address</string>
+    <string name="invalid_mac_address">Enter six hexadecimal pairs separated by colons, e.g. 00:09:BF:12:34:56.</string>
     <string name="randomize_mac_address">Randomize MAC address</string>
     <string name="randomize_mac_address_summary">When enabled, a random MAC address is used at every boot. This may cause some games to think its running on a different system and can break time based events.</string>
     <string name="generate_new_mac_address">Generate new</string>
@@ -1176,4 +1179,14 @@
     <string name="freedreno_name_fd_mesa_debug" translatable="false">FD_MESA_DEBUG</string>
     <string name="freedreno_restart_button">Restart</string>
     <string name="freedreno_save_failed">Could not save the setting. Tap Restart to try again.</string>
+    <string name="dsi_profiles">DSi profiles</string>
+    <string name="dsi_profile_initial">Current DSi setup</string>
+    <string name="dsi_profile_default_name">%1$s (default)</string>
+    <string name="dsi_profile_select">DSi profile</string>
+    <string name="dsi_profile_add">Add profile</string>
+    <string name="dsi_profile_name">Profile name</string>
+    <string name="dsi_profile_rename">Rename</string>
+    <string name="dsi_profile_make_default">Set as default</string>
+    <string name="dsi_profile_missing">Profile unavailable</string>
+    <string name="dsi_profile_remove_description">Remove this profile from settings? Its files will remain. Games assigned to it will need another profile before they can start.</string>
 </resources>

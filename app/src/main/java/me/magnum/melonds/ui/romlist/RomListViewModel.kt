@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 import me.magnum.melonds.common.DirectoryAccessValidator
 import me.magnum.melonds.common.Permission
 import me.magnum.melonds.common.UriPermissionManager
+import me.magnum.melonds.domain.model.DSiProfile
 import me.magnum.melonds.domain.model.DSiWareTitle
 import me.magnum.melonds.domain.model.RomFilter
 import me.magnum.melonds.domain.model.RomViewMode
@@ -63,10 +64,13 @@ class RomListViewModel @Inject constructor(
     private val _boxArtByUri = MutableStateFlow<Map<String, String>>(emptyMap())
 
     val boxArtByUri: StateFlow<Map<String, String>> = _boxArtByUri.asStateFlow()
+    val romCoversEnabled = settingsRepository.observeRomCoverEnabled()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, settingsRepository.isRomCoverEnabled())
     private val boxArtRequestsInFlight = mutableSetOf<String>()
     private val boxArtSemaphore = kotlinx.coroutines.sync.Semaphore(4)
 
     fun requestBoxArt(rom: Rom) {
+        if (!settingsRepository.isRomCoverEnabled()) return
         if (rom.config.iconSource != RomIconSource.DEFAULT) return
         val key = rom.uri.toString()
         if (_boxArtByUri.value.containsKey(key)) return
@@ -114,12 +118,13 @@ class RomListViewModel @Inject constructor(
         settingsRepository.observeRaCoverEnabled(),
         romsWithParents,
         installedDsiWareShortcuts,
-    ) { covers, enabled, roms, installed ->
+        romCoversEnabled,
+    ) { covers, enabled, roms, installed, useCoverArt ->
         (roms + installed).mapNotNull { entry ->
             val rom = entry.rom
             covers[rom.retroAchievementsHash]
-                ?.takeIf { rom.config.iconSource.usesRetroAchievements(enabled) }
-                ?.let { rom.uri.toString() to it }
+                ?.takeIf { rom.config.iconSource.resolve(useCoverArt).usesRetroAchievements(enabled, it.hasAchievements) }
+                ?.let { rom.uri.toString() to it.url }
         }.toMap()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
     private val rootDirectories = MutableStateFlow<List<RootDirectory>>(emptyList())
@@ -139,8 +144,6 @@ class RomListViewModel @Inject constructor(
     private val reportedUnavailableDirectories = mutableSetOf<String>()
 
     init {
-        refreshInstalledDsiWareShortcuts()
-
         viewModelScope.launch {
             settingsRepository.observeRomSearchDirectories()
                 .distinctUntilChanged()
@@ -513,35 +516,29 @@ class RomListViewModel @Inject constructor(
         return roms.filter { it.searchKey.contains(normalizedQuery) }
     }
 
-    private fun refreshInstalledDsiWareShortcuts() {
+    fun refreshInstalledDsiWareShortcuts() {
         viewModelScope.launch {
             installedDsiWareShortcuts.value = loadInstalledDsiWareShortcuts()
         }
     }
 
     private suspend fun loadInstalledDsiWareShortcuts(): List<RomWithParent> = withContext(Dispatchers.IO) {
-        val openResult = dsiNandManager.openNand()
-        if (openResult.isFailure()) {
-            return@withContext emptyList()
-        }
-
-        try {
-            dsiNandManager.listTitles()
-                .map { title -> buildRomWithParent(title.toInstalledDsiWareRom(), null) }
-        } finally {
-            dsiNandManager.closeNand()
-        }
+        val profile = settingsRepository.getDsiProfile() ?: return@withContext emptyList()
+        val configuration = settingsRepository.getEmulatorConfiguration(profile)
+        dsiNandManager.withNand(configuration) {
+            listTitles().map { title -> buildRomWithParent(title.toInstalledDsiWareRom(profile), null) }
+        }.orEmpty()
     }
 
-    private fun DSiWareTitle.toInstalledDsiWareRom(): Rom {
+    private fun DSiWareTitle.toInstalledDsiWareRom(profile: DSiProfile): Rom {
         val titleIdHex = (titleId and 0xFFFFFFFFL).toString(16).padStart(8, '0')
         return Rom(
             name = name,
             developerName = producer,
             fileName = "$titleIdHex.app",
-            uri = Rom.installedDsiWareUri(titleId),
+            uri = Rom.installedDsiWareUri(titleId, profile.id),
             parentTreeUri = null,
-            config = RomConfig.forDsiWareTitle(),
+            config = RomConfig.forDsiWareTitle().copy(dsiProfileId = profile.id),
             lastPlayed = null,
             isDsiWareTitle = true,
             retroAchievementsHash = "",

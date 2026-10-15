@@ -634,7 +634,7 @@ constexpr VkDeviceSize kFaithfulAtlasSize       = 0x26D000;
 constexpr VkDeviceSize kFaithfulAtlasVivo       = kFaithfulAtlasSize;
 constexpr VkDeviceSize kFaithfulAtlasTotal      = 2u * kFaithfulAtlasSize;
 
-constexpr u32 kFaithfulCausalAbiVersion = 5u;
+constexpr u32 kFaithfulCausalAbiVersion = 6u;
 constexpr u32 kFaithfulCausalHeaderRoutesValid = 1u << 0u;
 constexpr u32 kFaithfulCausalHeaderFullLineageValid = 1u << 1u;
 constexpr u32 kFaithfulCausalHeaderVisibleAllNative = 1u << 2u;
@@ -807,10 +807,14 @@ constexpr VkDeviceSize kFaithfulCausalCaptureMaterialOffset =
     kFaithfulCausalCaptureRecipePixelOffset
     + kFaithfulCausalScreenWidth * kFaithfulCausalScreenHeight
         * sizeof(melonDS::GPU2D::SoftRenderer::FaithfulCapturePixelRecipe);
-constexpr VkDeviceSize kFaithfulCausalBufferSize =
+constexpr VkDeviceSize kFaithfulCausalCaptureBackgroundOffset =
     kFaithfulCausalCaptureMaterialOffset
     + kFaithfulCausalScreenWidth * kFaithfulCausalScreenHeight
         * sizeof(u16);
+constexpr VkDeviceSize kFaithfulCausalBufferSize =
+    kFaithfulCausalCaptureBackgroundOffset
+    + kFaithfulCausalScreenWidth * kFaithfulCausalScreenHeight
+        * sizeof(melonDS::GPU2D::SoftRenderer::FaithfulCaptureBackgroundOperand);
 
 static_assert((kFaithfulCausalRouteOffset % 16u) == 0u);
 static_assert((kFaithfulCausalLineageRowOffset % 16u) == 0u);
@@ -827,7 +831,10 @@ static_assert(kFaithfulCausalCaptureRecipeHeaderOffset == 1'624'160u);
 static_assert(kFaithfulCausalCaptureRecipeLineOffset == 1'624'224u);
 static_assert(kFaithfulCausalCaptureRecipePixelOffset == 1'630'368u);
 static_assert(kFaithfulCausalCaptureMaterialOffset == 3'989'664u);
-static_assert(kFaithfulCausalBufferSize == 4'087'968u);
+static_assert(kFaithfulCausalCaptureBackgroundOffset == 4'087'968u);
+static_assert(kFaithfulCausalBufferSize == 4'874'400u);
+static_assert(sizeof(melonDS::GPU2D::SoftRenderer::FaithfulCaptureBackgroundOperand)
+    == 16u);
 
 template <typename Copy>
 inline void copiarTrozosSucios(u8* dst, const u8* src, size_t bytes,
@@ -876,7 +883,7 @@ struct VulkanOutput::FaithfulCaptureMaterializationNode
     };
 
     Lease product {};
-    std::vector<Lease> directSourceBParents {};
+    std::vector<Lease> directCaptureParents {};
     std::vector<Key> highresParents {};
 
     std::vector<Key> nativeFrontiers {};
@@ -1580,11 +1587,9 @@ bool VulkanOutput::uploadFaithfulCaptureRecipeLocked(
     const u8 effectiveEvb = static_cast<u8>(std::min<u32>(
         (product.CaptureCnt >> 8u) & 0x1Fu, 16u));
     if (sourceAOnly
-        && (!(captureMode == 0u
-                || (captureMode >= 2u
-                    && effectiveEva != 0u && effectiveEvb == 0u))
-            || !record.DirectSourceBParents.empty()
-            || !node.directSourceBParents.empty()))
+        && !(captureMode == 0u
+            || (captureMode >= 2u
+                && effectiveEva != 0u && effectiveEvb == 0u)))
     {
         return false;
     }
@@ -1627,7 +1632,7 @@ bool VulkanOutput::uploadFaithfulCaptureRecipeLocked(
         }
         return 4u;
     };
-    for (const auto& parentKey : record.DirectSourceBParents)
+    for (const auto& parentKey : record.DirectCaptureParents)
     {
         if (parentTableCount >= parentTable.size())
             return false;
@@ -1642,15 +1647,15 @@ bool VulkanOutput::uploadFaithfulCaptureRecipeLocked(
                    node.nativeFrontiers.end(), key)
                 != node.nativeFrontiers.end();
         const auto held = std::find_if(
-            node.directSourceBParents.begin(),
-            node.directSourceBParents.end(),
+            node.directCaptureParents.begin(),
+            node.directCaptureParents.end(),
             [&](const auto& parent) {
                 return parent != nullptr
                     && parent->Metadata.ProductEpoch == parentKey.Epoch
                     && parent->Metadata.ProductId == parentKey.Id;
             });
         const melonDS::GPU2D::SoftRenderer::FaithfulCaptureProductRecord* parent =
-            held != node.directSourceBParents.end() ? held->get() : nullptr;
+            held != node.directCaptureParents.end() ? held->get() : nullptr;
         if (frontier)
         {
 
@@ -1861,6 +1866,45 @@ bool VulkanOutput::uploadFaithfulCaptureRecipeLocked(
         }
     }
 
+    const bool hasBackground = !record.SourceABackground.empty();
+    if (hasBackground)
+    {
+        using BackgroundOperand = melonDS::GPU2D::SoftRenderer::
+            FaithfulCaptureBackgroundOperand;
+        if (record.SourceABackground.size()
+                != kFaithfulCausalScreenWidth * kFaithfulCausalScreenHeight
+            || (product.CaptureCnt & (1u << 24u)) != 0u)
+            return false;
+        auto* const destination = reinterpret_cast<BackgroundOperand*>(
+            bytes + kFaithfulCausalCaptureBackgroundOffset);
+        for (size_t pixel = 0u; pixel < record.SourceABackground.size(); pixel++)
+        {
+            auto operand = record.SourceABackground[pixel];
+            if (operand.ProductId != 0u)
+            {
+                const ParentResolution* entry = nullptr;
+                for (size_t i = 0u; i < parentTableCount; i++)
+                {
+                    if (parentTable[i].epoch == product.ProductEpoch
+                        && parentTable[i].id == operand.ProductId)
+                    {
+                        entry = &parentTable[i];
+                        break;
+                    }
+                }
+                if (entry == nullptr || entry->reject
+                    || (operand.Coordinates & 0xFFFFu) >= entry->width
+                    || (operand.Coordinates >> 16u) >= entry->height)
+                    return false;
+                if (entry->native)
+                    operand = {};
+                else
+                    operand.Slot = entry->slot + 1u;
+            }
+            destination[pixel] = operand;
+        }
+    }
+
     std::memcpy(bytes + kFaithfulCausalCaptureMaterialOffset,
                 record.Material.data(),
                 record.Material.size() * sizeof(record.Material[0]));
@@ -1887,7 +1931,8 @@ bool VulkanOutput::uploadFaithfulCaptureRecipeLocked(
         | (product.HighresEligible ? (1u << 5u) : 0u)
         | (product.Uses3d ? (1u << 6u) : 0u)
         | (product.SourceIdentity.Valid ? (1u << 7u) : 0u)
-        | (sourceAOnly ? (1u << 8u) : 0u);
+        | (sourceAOnly ? (1u << 8u) : 0u)
+        | (hasBackground ? (1u << 9u) : 0u);
     recipeHeader.RenderEpochLo = low32(
         product.SourceIdentity.RenderProductEpoch);
     recipeHeader.RenderEpochHi = high32(
@@ -2254,7 +2299,8 @@ void VulkanOutput::uploadFaithfulCausalPrevLocked(melonDS::GPU& gpu)
 
             constexpr u32 kSupportedControlMask = 0x7u
                 | (0x3u << 3u) | (1u << 6u) | (0x1Fu << 18u);
-            const bool supportedReplace = compositeOp == 1u && exact
+            const bool supportedReplace = (compositeOp == 1u || compositeOp == 5u)
+                && exact
                 && postEffect <= 2u && handle >= 2u
                 && handle < productCount && visible.OperandB == 0u
                 && visible.NativeOperandRgb666 == 0u
@@ -2500,7 +2546,7 @@ void VulkanOutput::uploadFaithfulCausalPrevLocked(melonDS::GPU& gpu)
                 return static_cast<size_t>(-1);
         }
 
-        for (const auto& parent : node.product->DirectSourceBParents)
+        for (const auto& parent : node.product->DirectCaptureParents)
         {
             const FaithfulCaptureMaterializationNode::Key parentKey{
                 parent.Epoch, parent.Id};
@@ -2543,15 +2589,15 @@ void VulkanOutput::uploadFaithfulCausalPrevLocked(melonDS::GPU& gpu)
                 return static_cast<size_t>(-1);
             }
             const auto alreadyHeld = std::find_if(
-                node.directSourceBParents.begin(),
-                node.directSourceBParents.end(),
+                node.directCaptureParents.begin(),
+                node.directCaptureParents.end(),
                 [&](const auto& held) {
                     return held != nullptr
                         && held->Metadata.ProductEpoch == parentKey.epoch
                         && held->Metadata.ProductId == parentKey.id;
                 });
-            if (alreadyHeld == node.directSourceBParents.end())
-                node.directSourceBParents.push_back(parentLease);
+            if (alreadyHeld == node.directCaptureParents.end())
+                node.directCaptureParents.push_back(parentLease);
 
             if (parentLease->Metadata.Uses3d
                 && residentCaptureSlot(parentKey) >= 4u
@@ -4784,6 +4830,59 @@ bool VulkanOutput::dispatchFaithfulCompositor(Frame* frame, FrameResource& resou
             && slotContainsScheduledCapture(slot, key);
     };
 
+    const auto snapshotVisibleToThisDispatch =
+        [&](const FrameResource& candidate) {
+            return candidate.renderer3dSnapshotState
+                    == Renderer3dSnapshotState::Published
+                || (&candidate == &resource
+                    && candidate.renderer3dSnapshotState
+                        == Renderer3dSnapshotState::PendingSubmit);
+        };
+    const auto captureSourceMatches = [&](const FrameResource& candidate,
+                                           u64 epoch, u64 sequence) {
+        return snapshotVisibleToThisDispatch(candidate)
+            && candidate.hasRenderer3dSnapshot
+            && candidate.renderer3dSnapshot != VK_NULL_HANDLE
+            && candidate.renderer3dSnapshotView != VK_NULL_HANDLE
+            && candidate.renderer3dSnapshotSourceIdentityValid
+            && candidate.renderer3dSnapshotSourceEpoch == epoch
+            && candidate.renderer3dSnapshotSourceSequence == sequence;
+    };
+    const auto captureSourceProjectionValid =
+        [](const FrameResource& candidate) {
+            return candidate.renderer3dSnapshotProjection.valid()
+                && candidate.snapshotWidth
+                    == candidate.renderer3dSnapshotProjection.destinationWidth
+                && candidate.snapshotHeight
+                    == candidate.renderer3dSnapshotProjection.destinationHeight;
+        };
+    const auto captureSourceAvailable =
+        [&](const FaithfulCaptureMaterializationNode& node) {
+            if (!node.requiresSourceA)
+                return true;
+            const Renderer3dSnapshotProjectionKey* projection = nullptr;
+            for (const auto& [candidateFrame, candidate] : resources)
+            {
+                (void)candidateFrame;
+                if (!captureSourceMatches(candidate,
+                        node.sourceARenderEpoch, node.sourceARenderSequence))
+                    continue;
+                if (!captureSourceProjectionValid(candidate)
+                    || (projection != nullptr
+                        && !(candidate.renderer3dSnapshotProjection
+                            == *projection)))
+                {
+                    return false;
+                }
+                projection = &candidate.renderer3dSnapshotProjection;
+            }
+            return projection != nullptr
+                && projection->destinationWidth >= 256u * escala
+                && (projection->destinationWidth % (256u * escala)) == 0u
+                && projection->destinationHeight * 4u
+                    == projection->destinationWidth * 3u;
+        };
+
     const auto capturePlan = faithfulCapturePlans[faithfulRing];
     std::array<bool, 4> captureSlotPinned {};
     const FaithfulCaptureMaterializationNode* captureTargetNode = nullptr;
@@ -4918,17 +5017,22 @@ bool VulkanOutput::dispatchFaithfulCompositor(Frame* frame, FrameResource& resou
         size_t targetIndex = static_cast<size_t>(-1);
         if (terminalSetResident && protectedKeys.size() <= 4u)
         {
-
-            if (capturePlan->currentExact && capturePlan->current.valid())
+            const size_t visibleTargetIndex = firstMissingNode(
+                capturePlan->visibleDependencyOrder);
+            targetIndex = visibleTargetIndex;
+            if (targetIndex != static_cast<size_t>(-1)
+                && !captureSourceAvailable(capturePlan->nodes[targetIndex]))
+            {
+                targetIndex = static_cast<size_t>(-1);
+            }
+            if (targetIndex == static_cast<size_t>(-1)
+                && capturePlan->currentExact && capturePlan->current.valid())
             {
                 targetIndex = firstMissingNode(
                     capturePlan->currentDependencyOrder);
             }
             if (targetIndex == static_cast<size_t>(-1))
-            {
-                targetIndex = firstMissingNode(
-                    capturePlan->visibleDependencyOrder);
-            }
+                targetIndex = visibleTargetIndex;
         }
 
         if (targetIndex != static_cast<size_t>(-1)
@@ -5080,7 +5184,6 @@ bool VulkanOutput::dispatchFaithfulCompositor(Frame* frame, FrameResource& resou
     if (!capFichaActiva && capHighresProp && escala > 1u && captureTargetNode != nullptr)
         diagInvalidaciones |= 4u;
     const bool fichaFiel = capHighresProp && escala > 1u
-        && capFichaActiva
         && captureTargetNode != nullptr
         && captureTargetStamp.valid && captureTargetStamp.complete
         && captureTargetStamp.materialComplete
@@ -5366,14 +5469,6 @@ bool VulkanOutput::dispatchFaithfulCompositor(Frame* frame, FrameResource& resou
                 0u, nullptr);
         }
     }
-    const auto snapshotVisibleToThisDispatch =
-        [&](const FrameResource& candidate) {
-            return candidate.renderer3dSnapshotState
-                    == Renderer3dSnapshotState::Published
-                || (&candidate == &resource
-                    && candidate.renderer3dSnapshotState
-                        == Renderer3dSnapshotState::PendingSubmit);
-        };
 
     FaithfulCausalBoundLiveGpu* boundLive = nullptr;
     bool causalHeaderCpuValid = false;
@@ -5656,27 +5751,10 @@ bool VulkanOutput::dispatchFaithfulCompositor(Frame* frame, FrameResource& resou
         && captureTargetStamp.sourceIdentityValid)
     {
         const auto coincideProducto = [&](const FrameResource& candidata) {
-            return snapshotVisibleToThisDispatch(candidata)
-                && candidata.hasRenderer3dSnapshot
-                && candidata.renderer3dSnapshot != VK_NULL_HANDLE
-                && candidata.renderer3dSnapshotView != VK_NULL_HANDLE
-                && candidata.renderer3dSnapshotSourceIdentityValid
-                && candidata.renderer3dSnapshotSourceEpoch
-                    == captureTargetStamp.sourceRenderProductEpoch
-
-                && candidata.renderer3dSnapshotSourceSequence
-                    == captureTargetStamp.sourceSequence;
+            return captureSourceMatches(candidata,
+                captureTargetStamp.sourceRenderProductEpoch,
+                captureTargetStamp.sourceSequence);
         };
-        const auto snapshotProductoValido =
-            [](const FrameResource& candidata) {
-                return candidata.renderer3dSnapshotProjection.valid()
-                    && candidata.snapshotWidth
-                        == candidata.renderer3dSnapshotProjection
-                            .destinationWidth
-                    && candidata.snapshotHeight
-                        == candidata.renderer3dSnapshotProjection
-                            .destinationHeight;
-            };
         const auto adoptarProducto = [&](FrameResource& candidata,
                                          bool actual) {
             paseFuenteImagen = candidata.renderer3dSnapshot;
@@ -5700,7 +5778,7 @@ bool VulkanOutput::dispatchFaithfulCompositor(Frame* frame, FrameResource& resou
         if (coincideProducto(resource))
         {
             paseFuenteCoincidencias++;
-            if (snapshotProductoValido(resource))
+            if (captureSourceProjectionValid(resource))
                 adoptarProducto(resource, true);
             else
                 paseFuenteAmbigua = true;
@@ -5711,7 +5789,7 @@ bool VulkanOutput::dispatchFaithfulCompositor(Frame* frame, FrameResource& resou
             if (&candidata == &resource || !coincideProducto(candidata))
                 continue;
             paseFuenteCoincidencias++;
-            if (!snapshotProductoValido(candidata))
+            if (!captureSourceProjectionValid(candidata))
             {
                 paseFuenteAmbigua = true;
                 continue;

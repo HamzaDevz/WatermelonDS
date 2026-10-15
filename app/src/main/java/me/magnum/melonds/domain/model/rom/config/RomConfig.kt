@@ -22,6 +22,7 @@ data class RomConfig(
     val retroArchShaderParameters: String? = null,
     val retroAchievementsEnabled: Boolean? = null,
     val iconSource: RomIconSource = RomIconSource.DEFAULT,
+    val dsiProfileId: String? = null,
 ) {
 
     fun getEffectiveControllerConfiguration(globalConfiguration: ControllerConfiguration): ControllerConfiguration {

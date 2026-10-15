@@ -67,6 +67,7 @@ fun RomGridCard(
     coverUrl: String?,
     boxArtUrl: String? = null,
     boxArtLoading: Boolean = false,
+    useCoverArt: Boolean = true,
     showAchievementBadge: Boolean,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
@@ -82,7 +83,7 @@ fun RomGridCard(
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 4000f),
         label = "press",
     )
-    var artLoaded by remember(rom.uri, rom.config.iconSource, boxArtUrl, coverUrl) { mutableStateOf(false) }
+    var artLoaded by remember(rom.uri, rom.config.iconSource, boxArtUrl, coverUrl, useCoverArt) { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -102,6 +103,7 @@ fun RomGridCard(
             rom = rom,
             boxArtUrl = boxArtUrl,
             raCoverUrl = coverUrl,
+            useCoverArt = useCoverArt,
             initialsFontSize = 44.sp,
             boxArtLoading = boxArtLoading,
             modifier = Modifier.aspectRatio(DsBoxArtAspectRatio).fillMaxWidth(),

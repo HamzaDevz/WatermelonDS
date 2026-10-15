@@ -4,6 +4,7 @@ import android.app.SearchManager
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
@@ -53,6 +54,8 @@ class RomListActivity : AppCompatActivity() {
     companion object {
         private const val FRAGMENT_ROM_LIST = "ROM_LIST"
         private const val FRAGMENT_NO_ROM_DIRECTORIES = "NO_ROM_DIRECTORY"
+        private const val KEY_BRAND_INTRO_CONSUMED = "brand_intro_consumed"
+        private const val KEY_BRAND_INTRO_STARTED = "brand_intro_started"
     }
 
     @Inject lateinit var markwon: Markwon
@@ -62,6 +65,10 @@ class RomListActivity : AppCompatActivity() {
 
     private var downloadProgressDialog: AlertDialog? = null
     private var romBrowserDpadDownGate: (() -> Boolean)? = null
+    private var brandIntroConsumed = false
+    private var brandIntroStartedAt = 0L
+    internal var alternativeLauncherIcon = false
+        private set
 
     private val externalInfoController by lazy { me.magnum.melonds.ui.common.ExternalInfoDisplayController(this) }
     private val highlightedRom = kotlinx.coroutines.flow.MutableStateFlow<Rom?>(null)
@@ -69,7 +76,10 @@ class RomListActivity : AppCompatActivity() {
     private lateinit var binding: ActivityRomListBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        brandIntroConsumed = savedInstanceState?.getBoolean(KEY_BRAND_INTRO_CONSUMED) ?: false
+        brandIntroStartedAt = savedInstanceState?.getLong(KEY_BRAND_INTRO_STARTED) ?: 0L
+        alternativeLauncherIcon = me.magnum.melonds.ui.common.LauncherIcon.isAlternative(this)
+        installSplashScreen().setOnExitAnimationListener { it.remove() }
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
         binding = ActivityRomListBinding.inflate(layoutInflater)
@@ -106,7 +116,7 @@ class RomListActivity : AppCompatActivity() {
                 overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             }
 
-            override fun onFirmwareValidated(consoleType: ConsoleType) {
+            override fun onFirmwareValidated(consoleType: ConsoleType, dsiProfile: me.magnum.melonds.domain.model.DSiProfile?) {
                 val intent = EmulatorActivity.getFirmwareEmulatorActivityIntent(this@RomListActivity, consoleType)
                 startActivity(intent)
                 overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
@@ -172,6 +182,22 @@ class RomListActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(KEY_BRAND_INTRO_CONSUMED, brandIntroConsumed)
+        outState.putLong(KEY_BRAND_INTRO_STARTED, brandIntroStartedAt)
+        super.onSaveInstanceState(outState)
+    }
+
+    internal fun beginBrandIntro(): Long? {
+        if (brandIntroConsumed) return null
+        if (brandIntroStartedAt == 0L) brandIntroStartedAt = SystemClock.uptimeMillis()
+        return brandIntroStartedAt
+    }
+
+    internal fun finishBrandIntro() {
+        brandIntroConsumed = true
+    }
+
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         val toggleItem = menu.findItem(R.id.action_view_toggle)
         toggleItem?.setIcon(
@@ -216,6 +242,7 @@ class RomListActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        viewModel.refreshInstalledDsiWareShortcuts()
         externalInfoController.attach()
         externalInfoController.setContent {
             val highlighted = highlightedRom.collectAsState().value
@@ -226,10 +253,12 @@ class RomListActivity : AppCompatActivity() {
             if (rom != null) {
                 val boxArtByUri = viewModel.boxArtByUri.collectAsState().value
                 val raCoverByUri = viewModel.raCoverByUri.collectAsState().value
+                val useCoverArt = viewModel.romCoversEnabled.collectAsState().value
+                val iconSource = rom.config.iconSource.resolve(useCoverArt)
                 me.magnum.melonds.ui.common.ExternalLibraryGameInfo(
-                    rom = rom,
+                    rom = rom.copy(config = rom.config.copy(iconSource = iconSource)),
                     boxArtUrl = boxArtByUri[rom.uri.toString()]?.takeIf {
-                        it.isNotEmpty() && rom.config.iconSource == RomIconSource.DEFAULT
+                        it.isNotEmpty() && iconSource == RomIconSource.DEFAULT
                     },
                     raCoverUrl = raCoverByUri[rom.uri.toString()],
                 )

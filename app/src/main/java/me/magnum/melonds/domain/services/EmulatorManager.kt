@@ -23,7 +23,7 @@ interface EmulatorManager {
 
     suspend fun loadRom(rom: Rom, cheats: List<Cheat>): RomLaunchResult
 
-    suspend fun loadFirmware(consoleType: ConsoleType): FirmwareLaunchResult
+    suspend fun loadFirmware(consoleType: ConsoleType, dsiProfile: me.magnum.melonds.domain.model.DSiProfile? = null): FirmwareLaunchResult
 
     suspend fun updateRomEmulatorConfiguration(rom: Rom)
 

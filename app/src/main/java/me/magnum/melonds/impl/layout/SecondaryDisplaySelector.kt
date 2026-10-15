@@ -19,8 +19,13 @@ class SecondaryDisplaySelector @Inject constructor() {
     fun getSecondaryDisplay(context: Context): Display? {
         val currentDisplay = ContextCompat.getDisplayOrDefault(context)
         return context.getSystemService<DisplayManager>()?.let { displayManager ->
-            displayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).firstOrNull {
-                it.displayId != currentDisplay.displayId && it.name !in ExcludedDisplays
+            val presentationDisplays = displayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
+            displayManager.displays.firstOrNull { display ->
+                (display.displayId != Display.DEFAULT_DISPLAY || presentationDisplays.any { it.displayId == display.displayId }) &&
+                    display.displayId != currentDisplay.displayId &&
+                    display.name !in ExcludedDisplays &&
+                    display.state != Display.STATE_OFF &&
+                    display.isValid
             }
         }
     }

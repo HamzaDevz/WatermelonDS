@@ -24,6 +24,7 @@ import me.magnum.melonds.common.workers.RetroAchievementsSubmissionWorker
 import me.magnum.melonds.database.daos.RetroAchievementsDao
 import me.magnum.melonds.database.entities.retroachievements.RAGameEntity
 import me.magnum.melonds.database.entities.retroachievements.RAGameHashEntity
+import me.magnum.melonds.domain.model.retroachievements.RomCoverIcon
 import me.magnum.melonds.database.entities.retroachievements.RAGameSetMetadata
 import me.magnum.melonds.database.entities.retroachievements.RAPendingAchievementSubmissionEntity
 import me.magnum.melonds.database.entities.retroachievements.RAUserAchievementEntity
@@ -80,10 +81,12 @@ class AndroidRetroAchievementsRepository(
         const val MAX_RA_AWARD_OFFSET_SECONDS = 14L * 24L * 60L * 60L
     }
 
-    override fun observeKnownAchievementHashes() = retroAchievementsDao.observeAllGameHashes()
+    override fun observeKnownAchievementHashes() = retroAchievementsDao.observeGameHashesWithAchievements()
 
     override fun observeRomCoverIcons() = retroAchievementsDao.observeRomCoverIcons()
-        .map { rows -> rows.associate { it.hash to it.iconUrl } }
+        .map { rows ->
+            rows.associate { it.hash to RomCoverIcon(it.iconUrl, it.hasAchievements) }
+        }
 
     override fun observeUserProfile() = raUserProfileStore.observeUserProfile()
 

@@ -177,18 +177,20 @@ fun WatermelonRomArt(
     initialsFontSize: androidx.compose.ui.unit.TextUnit = 44.sp,
     contentScale: ContentScale = ContentScale.Crop,
     boxArtLoading: Boolean = false,
+    useCoverArt: Boolean = true,
     onArtLoadedChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     var boxArtFailed by remember(rom.uri, boxArtUrl) { mutableStateOf(false) }
     var raFailed by remember(rom.uri, raCoverUrl) { mutableStateOf(false) }
-    var artLoaded by remember(rom.uri, boxArtUrl, raCoverUrl, rom.config.iconSource) { mutableStateOf(false) }
+    var artLoaded by remember(rom.uri, boxArtUrl, raCoverUrl, rom.config.iconSource, useCoverArt) { mutableStateOf(false) }
 
-    val inheritArtwork = rom.config.iconSource == RomIconSource.DEFAULT
+    val iconSource = rom.config.iconSource.resolve(useCoverArt)
+    val inheritArtwork = iconSource == RomIconSource.DEFAULT
 
     val activeUrl = when {
         inheritArtwork && boxArtUrl != null && !boxArtFailed -> boxArtUrl
-        rom.config.iconSource != RomIconSource.NATIVE && raCoverUrl != null && !raFailed -> raCoverUrl
+        iconSource != RomIconSource.NATIVE && raCoverUrl != null && !raFailed -> raCoverUrl
         else -> null
     }
 

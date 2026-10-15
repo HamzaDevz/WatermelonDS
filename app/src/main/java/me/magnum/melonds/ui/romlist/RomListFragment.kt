@@ -78,6 +78,9 @@ class RomListFragment : Fragment() {
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        val host = activity as? RomListActivity
+        val brandIntroStartedAt = host?.beginBrandIntro()
+        val alternativeIcon = host?.alternativeLauncherIcon == true
         val allowRomConfiguration = arguments?.getBoolean(KEY_ALLOW_ROM_CONFIGURATION) ?: true
 
         backPressedCallback = object : OnBackPressedCallback(false) {
@@ -96,6 +99,7 @@ class RomListFragment : Fragment() {
                     val confirmedAchievementHashes by romListViewModel.confirmedAchievementHashes.collectAsState()
                     val raCoverByUri by romListViewModel.raCoverByUri.collectAsState()
                     val boxArtByUri by romListViewModel.boxArtByUri.collectAsState()
+                    val useCoverArt by romListViewModel.romCoversEnabled.collectAsState()
                     var contextRomUri by remember { mutableStateOf<String?>(null) }
                     var searchQuery by remember { mutableStateOf("") }
 
@@ -108,52 +112,56 @@ class RomListFragment : Fragment() {
                         } ?: state.continuePlaying.firstOrNull { it.uri.toString() == target }
                     }
 
-                    RomBrowserScreen(
-                        state = state,
-                        coverByUri = raCoverByUri,
-                        boxArtByUri = boxArtByUri,
-                        searchQuery = searchQuery,
-                        allowConfiguration = allowRomConfiguration,
-                        scanningStatus = scanningStatus,
-                        confirmedAchievementHashes = confirmedAchievementHashes,
-                        onFolderClick = { folder -> romListViewModel.openFolder(folder.docId) },
-                        onRomClick = { rom ->
-                            romListViewModel.setRomLastPlayedNow(rom)
-                            romSelectedListener?.invoke(rom)
-                        },
-                        onRomLongPress = { rom -> contextRomUri = rom.uri.toString() },
-                        onRomConfigClick = { rom -> contextRomUri = rom.uri.toString() },
-                        onFilterSelected = { filter -> romListViewModel.setFilter(filter) },
-                        onSortSelected = { mode -> romListViewModel.setRomSorting(mode) },
-                        onNavigateUp = { romListViewModel.navigateUp() },
-                        onRefresh = { romListViewModel.refreshRoms() },
-                        onSearchQueryChanged = { query ->
-                            searchQuery = query ?: ""
-                            romListViewModel.setRomSearchQuery(query)
-                        },
-                        onToggleViewMode = { romListViewModel.toggleViewMode() },
-                        onBootFirmwareDs = { (activity as? RomListActivity)?.bootFirmware(me.magnum.melonds.domain.model.ConsoleType.DS) },
-                        onBootFirmwareDsi = { (activity as? RomListActivity)?.bootFirmware(me.magnum.melonds.domain.model.ConsoleType.DSi) },
-                        onOpenDsiWareManager = { (activity as? RomListActivity)?.openDsiWareManager() },
-                        onOpenSettings = { (activity as? RomListActivity)?.openSettings() },
-                        onRomVisible = { rom -> romListViewModel.requestBoxArt(rom) },
-                        onFocusedRomChanged = { rom ->
-                            (activity as? RomListActivity)?.onLibraryRomHighlighted(rom)
-                        },
-                        onDpadDownGateChanged = { gate ->
-                            (activity as? RomListActivity)?.setRomBrowserDpadDownGate(gate)
-                        },
-                    )
+                    me.magnum.melonds.ui.common.WatermelonLaunchIntro(brandIntroStartedAt, alternativeIcon, { host?.finishBrandIntro() }) {
+                        RomBrowserScreen(
+                            state = state,
+                            coverByUri = raCoverByUri,
+                            boxArtByUri = boxArtByUri,
+                            useCoverArt = useCoverArt,
+                            searchQuery = searchQuery,
+                            allowConfiguration = allowRomConfiguration,
+                            scanningStatus = scanningStatus,
+                            confirmedAchievementHashes = confirmedAchievementHashes,
+                            onFolderClick = { folder -> romListViewModel.openFolder(folder.docId) },
+                            onRomClick = { rom ->
+                                romListViewModel.setRomLastPlayedNow(rom)
+                                romSelectedListener?.invoke(rom)
+                            },
+                            onRomLongPress = { rom -> contextRomUri = rom.uri.toString() },
+                            onRomConfigClick = { rom -> contextRomUri = rom.uri.toString() },
+                            onFilterSelected = { filter -> romListViewModel.setFilter(filter) },
+                            onSortSelected = { mode -> romListViewModel.setRomSorting(mode) },
+                            onNavigateUp = { romListViewModel.navigateUp() },
+                            onRefresh = { romListViewModel.refreshRoms() },
+                            onSearchQueryChanged = { query ->
+                                searchQuery = query ?: ""
+                                romListViewModel.setRomSearchQuery(query)
+                            },
+                            onToggleViewMode = { romListViewModel.toggleViewMode() },
+                            onBootFirmwareDs = { (activity as? RomListActivity)?.bootFirmware(me.magnum.melonds.domain.model.ConsoleType.DS) },
+                            onBootFirmwareDsi = { (activity as? RomListActivity)?.bootFirmware(me.magnum.melonds.domain.model.ConsoleType.DSi) },
+                            onOpenDsiWareManager = { (activity as? RomListActivity)?.openDsiWareManager() },
+                            onOpenSettings = { (activity as? RomListActivity)?.openSettings() },
+                            onRomVisible = { rom -> romListViewModel.requestBoxArt(rom) },
+                            onFocusedRomChanged = { rom ->
+                                (activity as? RomListActivity)?.onLibraryRomHighlighted(rom)
+                            },
+                            onDpadDownGateChanged = { gate ->
+                                (activity as? RomListActivity)?.setRomBrowserDpadDownGate(gate)
+                            },
+                        )
 
-                    RomContextMenu(
-                        rom = currentContextRom,
-                        raCoverUrl = currentContextRom?.let { raCoverByUri[it.uri.toString()] },
-                        onDismiss = { contextRomUri = null },
-                        onToggleFavorite = { rom -> romListViewModel.toggleFavorite(rom) },
-                        onShowDetails = { rom -> openRomDetails(rom) },
-                        onSendSaveFile = { rom -> shareSaveFile(rom) },
-                        onImportSaveFile = { rom -> requestSaveFileImport(rom) },
-                    )
+                        RomContextMenu(
+                            rom = currentContextRom,
+                            useCoverArt = useCoverArt,
+                            raCoverUrl = currentContextRom?.let { raCoverByUri[it.uri.toString()] },
+                            onDismiss = { contextRomUri = null },
+                            onToggleFavorite = { rom -> romListViewModel.toggleFavorite(rom) },
+                            onShowDetails = { rom -> openRomDetails(rom) },
+                            onSendSaveFile = { rom -> shareSaveFile(rom) },
+                            onImportSaveFile = { rom -> requestSaveFileImport(rom) },
+                        )
+                    }
                 }
             }
         }

@@ -1,6 +1,7 @@
 package me.magnum.melonds.domain.model.rom
 
 import android.net.Uri
+import me.magnum.melonds.domain.model.DSiProfile
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import java.util.*
 import kotlin.time.Duration
@@ -21,6 +22,7 @@ data class Rom(
     val installedDsiWareIcon: ByteArray? = null,
 
     val unsupportedReason: String? = null,
+    val resolvedDsiProfile: DSiProfile? = null,
 ) {
     val isInstalledDsiWareShortcut: Boolean
         get() = installedDsiWareTitleId != null
@@ -32,9 +34,9 @@ data class Rom(
     companion object {
         const val INSTALLED_DSIWARE_URI_SCHEME = "dsiware-installed"
 
-        fun installedDsiWareUri(titleId: Long): Uri {
+        fun installedDsiWareUri(titleId: Long, profileId: String): Uri {
             val titleIdHex = (titleId and 0xFFFFFFFFL).toString(16).padStart(8, '0')
-            return Uri.parse("$INSTALLED_DSIWARE_URI_SCHEME://00030004/$titleIdHex")
+            return Uri.parse("$INSTALLED_DSIWARE_URI_SCHEME://00030004/$titleIdHex?profile=$profileId")
         }
     }
 }

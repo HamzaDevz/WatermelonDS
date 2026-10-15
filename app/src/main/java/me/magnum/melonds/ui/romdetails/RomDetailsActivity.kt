@@ -115,7 +115,7 @@ class RomDetailsActivity : AppCompatActivity() {
                 overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             }
 
-            override fun onFirmwareValidated(consoleType: ConsoleType) {
+            override fun onFirmwareValidated(consoleType: ConsoleType, dsiProfile: me.magnum.melonds.domain.model.DSiProfile?) {
                 // Do nothing (can't launch firmware fro this screen)
             }
 

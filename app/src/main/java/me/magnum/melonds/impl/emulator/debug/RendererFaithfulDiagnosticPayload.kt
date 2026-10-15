@@ -3,7 +3,7 @@ package me.magnum.melonds.impl.emulator.debug
 internal object RendererFaithfulDiagnosticPayload {
     const val HEADER_WORDS = 64
     const val REGS_WORDS = 24592
-    const val CAUSAL_WORDS_ABI5 = 1021992
+    const val CAUSAL_WORDS_ABI6 = 1218600
 
     class Metadata internal constructor(private val header: IntArray, private val causalHeader: IntArray) {
         val frameId: Long get() = read64(header, 4)
@@ -52,8 +52,8 @@ internal object RendererFaithfulDiagnosticPayload {
         if (words[0] != 0x31444657 || words[1] != 1 || words[2] != HEADER_WORDS) return null
         if (read64(words, 4) != expectedFrameId || read64(words, 6) == 0L) return null
         if (words[3] != words.size || words[10] != HEADER_WORDS || words[11] != REGS_WORDS ||
-            words[12] != HEADER_WORDS + REGS_WORDS || words[13] != CAUSAL_WORDS_ABI5 ||
-            words[14] != 5 || words.size != HEADER_WORDS + REGS_WORDS + CAUSAL_WORDS_ABI5
+            words[12] != HEADER_WORDS + REGS_WORDS || words[13] != CAUSAL_WORDS_ABI6 ||
+            words[14] != 6 || words.size != HEADER_WORDS + REGS_WORDS + CAUSAL_WORDS_ABI6
         ) return null
         val scale = words[38]
         if (scale !in 1..8 || words[8] != 256 * scale || words[9] != 386 * scale) return null
@@ -62,11 +62,11 @@ internal object RendererFaithfulDiagnosticPayload {
             words[48] != 256 || words[49] != 192 || (50 until HEADER_WORDS).any { words[it] != 0 }
         ) return null
         val causal = words[12]
-        if (words[causal + 1] != 5 || words[causal + 12] != CAUSAL_WORDS_ABI5 ||
+        if (words[causal + 1] != 6 || words[causal + 12] != CAUSAL_WORDS_ABI6 ||
             words[causal + 7] != 384 || words[causal + 8] != 98304
         ) return null
         for (index in 9..11) {
-            if (words[causal + index] !in 16 until CAUSAL_WORDS_ABI5) return null
+            if (words[causal + index] !in 16 until CAUSAL_WORDS_ABI6) return null
         }
         return Metadata(words.copyOfRange(0, HEADER_WORDS), words.copyOfRange(causal, causal + 16))
     }

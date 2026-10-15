@@ -41,7 +41,7 @@ class EmulatorLaunchValidatorDelegate(
                     when (it) {
                         is LaunchValidationResult.Firmware -> {
                             when (it.result) {
-                                is FirmwareLaunchPreconditionCheckResult.Success -> callback.onFirmwareValidated(it.result.consoleType)
+                                is FirmwareLaunchPreconditionCheckResult.Success -> callback.onFirmwareValidated(it.result.consoleType, it.result.dsiProfile)
                                 is FirmwareLaunchPreconditionCheckResult.BiosConfigurationIncorrect -> {
                                     showIncorrectConfigurationDirectoryDialogForFirmware(it.result.configurationDirectoryResult)
                                 }
@@ -187,7 +187,7 @@ class EmulatorLaunchValidatorDelegate(
 
     interface Callback {
         fun onRomValidated(rom: Rom)
-        fun onFirmwareValidated(consoleType: ConsoleType)
+        fun onFirmwareValidated(consoleType: ConsoleType, dsiProfile: me.magnum.melonds.domain.model.DSiProfile?)
         fun onValidationAborted()
     }
 }

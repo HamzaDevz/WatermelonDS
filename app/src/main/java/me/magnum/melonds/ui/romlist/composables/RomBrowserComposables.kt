@@ -1,5 +1,9 @@
 package me.magnum.melonds.ui.romlist.composables
 
+import me.magnum.melonds.ui.common.LocalBrandIntroTarget
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.draw.alpha
 import android.text.format.DateUtils
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -151,8 +155,14 @@ fun WatermelonLibraryHeader(
                     Icon(Icons.Filled.Close, contentDescription = null, tint = colors.text2, modifier = Modifier.size(20.dp))
                 }
             } else {
-                WatermelonMark(height = 24.dp)
-                Spacer(Modifier.width(9.dp))
+                val intro = LocalBrandIntroTarget.current
+                WatermelonMark(
+                    Modifier
+                        .onGloballyPositioned { intro?.bounds = it.boundsInRoot() }
+                        .alpha(if (intro == null) 1f else 0f),
+                    width = 38.dp,
+                )
+                Spacer(Modifier.width(10.dp))
                 Row(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Watermelon",
@@ -376,6 +386,7 @@ fun ContinuePlayingShelf(
     roms: List<Rom>,
     coverByUri: Map<String, String>,
     boxArtByUri: Map<String, String> = emptyMap(),
+    useCoverArt: Boolean = true,
     onRomClicked: (Rom) -> Unit,
     onRomLongPressed: (Rom) -> Unit,
     modifier: Modifier = Modifier,
@@ -399,7 +410,7 @@ fun ContinuePlayingShelf(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(roms, key = { it.uri.toString() }) { rom ->
-                LaunchedEffect(rom.uri, rom.config.iconSource) {
+                LaunchedEffect(rom.uri, rom.config.iconSource, useCoverArt) {
                     onRomVisible(rom)
                 }
                 ContinuePlayingCard(
@@ -407,6 +418,7 @@ fun ContinuePlayingShelf(
                     coverUrl = coverByUri[rom.uri.toString()],
                     boxArtUrl = boxArtByUri[rom.uri.toString()]?.takeIf { it.isNotEmpty() },
                     boxArtLoading = boxArtByUri[rom.uri.toString()] == null,
+                    useCoverArt = useCoverArt,
                     onClick = { onRomClicked(rom) },
                     onLongPress = { onRomLongPressed(rom) },
                     onFocused = onRomFocused,
@@ -423,6 +435,7 @@ private fun ContinuePlayingCard(
     coverUrl: String?,
     boxArtUrl: String?,
     boxArtLoading: Boolean = false,
+    useCoverArt: Boolean = true,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onFocused: (Rom) -> Unit = {},
@@ -467,6 +480,7 @@ private fun ContinuePlayingCard(
                 rom = rom,
                 boxArtUrl = boxArtUrl,
                 raCoverUrl = coverUrl,
+                useCoverArt = useCoverArt,
                 initialsFontSize = 26.sp,
                 boxArtLoading = boxArtLoading,
                 modifier = Modifier.fillMaxWidth().aspectRatio(DsBoxArtAspectRatio),

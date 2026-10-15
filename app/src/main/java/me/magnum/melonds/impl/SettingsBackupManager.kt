@@ -47,6 +47,7 @@ class SettingsBackupManager @Inject constructor(
             "rom_search_dirs",
             "bios_dir",
             "dsi_bios_dir",
+            "dsi_profiles",
             SETTINGS_MIRROR_FALLBACK_URI,
         )
         private val CHEAT_TABLES = listOf(

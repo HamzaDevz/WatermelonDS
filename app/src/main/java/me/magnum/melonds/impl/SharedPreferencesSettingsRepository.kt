@@ -66,6 +66,8 @@ import me.magnum.melonds.domain.model.camera.DSiCameraSourceType
 import me.magnum.melonds.domain.model.input.SoftInputBehaviour
 import me.magnum.melonds.domain.model.layout.LayoutConfiguration
 import me.magnum.melonds.domain.model.rom.Rom
+import me.magnum.melonds.domain.model.DSiProfile
+import me.magnum.melonds.domain.model.DSiProfileSettings
 import me.magnum.melonds.domain.model.rom.config.RomConfig
 import me.magnum.melonds.domain.model.retroachievements.RetroAchievementsOfflineBackend
 import me.magnum.melonds.domain.repositories.SettingsRepository
@@ -194,6 +196,7 @@ class SharedPreferencesSettingsRepository(
         preferences.registerOnSharedPreferenceChangeListener(this)
         setDefaultThemeIfRequired()
         setDefaultMacAddressIfRequired()
+        migrateDsiProfileIfRequired()
 
         val coreRenderInputsFlow = combine(
             combine(
@@ -313,11 +316,11 @@ class SharedPreferencesSettingsRepository(
         }
     }
 
-    override suspend fun getEmulatorConfiguration(): EmulatorConfiguration {
+    override suspend fun getEmulatorConfiguration(dsiProfile: DSiProfile?): EmulatorConfiguration {
         val consoleType = getDefaultConsoleType()
         val useCustomBios = useCustomBios()
         val dsBiosDirUri = getDsBiosDirectory()
-        val dsiBiosDirUri = getDsiBiosDirectory()
+        val dsiBiosDirUri = dsiProfile?.directoryUri?.toUri()
 
         if ((consoleType == ConsoleType.DS && useCustomBios && dsBiosDirUri == null) || (consoleType == ConsoleType.DSi && (dsBiosDirUri == null || dsiBiosDirUri == null))) {
             Log.w(TAG, "BIOS directory preference is incomplete; load will fail gracefully if custom BIOS is required")
@@ -370,8 +373,8 @@ class SharedPreferencesSettingsRepository(
         )
     }
 
-    override suspend fun getEmulatorConfiguration(romConfig: RomConfig): EmulatorConfiguration {
-        val globalConfiguration = getEmulatorConfiguration()
+    override suspend fun getEmulatorConfiguration(romConfig: RomConfig, dsiProfile: DSiProfile?): EmulatorConfiguration {
+        val globalConfiguration = getEmulatorConfiguration(dsiProfile)
         return globalConfiguration.copy(
             rendererConfiguration = buildRomRendererConfiguration(
                 baseConfiguration = globalConfiguration.rendererConfiguration,
@@ -515,6 +518,16 @@ class SharedPreferencesSettingsRepository(
         return preferences.getBoolean("rom_ra_covers_enabled", true)
     }
 
+    override fun isRomCoverEnabled(): Boolean {
+        return preferences.getBoolean("rom_covers_enabled", true)
+    }
+
+    override fun observeRomCoverEnabled(): Flow<Boolean> {
+        return getOrCreatePreferenceSharedFlow("rom_covers_enabled") {
+            isRomCoverEnabled()
+        }
+    }
+
     override fun observeRaCoverEnabled(): Flow<Boolean> {
         return getOrCreatePreferenceSharedFlow("rom_ra_covers_enabled") {
             isRaCoverEnabled()
@@ -581,9 +594,50 @@ class SharedPreferencesSettingsRepository(
         return dirPreference?.toUri()
     }
 
-    override fun getDsiBiosDirectory(): Uri? {
-        val dirPreference = preferences.getStringSet("dsi_bios_dir", null)?.firstOrNull()
-        return dirPreference?.toUri()
+    override fun getDsiBiosDirectory(): Uri? = getDsiProfile()?.directoryUri?.toUri()
+
+    private fun migrateDsiProfileIfRequired() {
+        if (preferences.contains("dsi_profiles")) return
+        val directory = preferences.getStringSet("dsi_bios_dir", null)?.firstOrNull()
+        val profile = directory?.let { DSiProfile(UUID.randomUUID().toString(), context.getString(me.magnum.melonds.R.string.dsi_profile_initial), it) }
+        writeDsiProfileSettings(DSiProfileSettings(listOfNotNull(profile), profile?.id))
+    }
+
+    override fun getDsiProfileSettings(): DSiProfileSettings {
+        val value = preferences.getString("dsi_profiles", null) ?: return DSiProfileSettings()
+        return runCatching { json.decodeFromString<DSiProfileSettings>(value) }
+            .onFailure { Log.w(TAG, "Unable to read DSi profiles", it) }
+            .getOrDefault(DSiProfileSettings())
+    }
+
+    override fun observeDsiProfileSettings(): Flow<DSiProfileSettings> =
+        getOrCreatePreferenceSharedFlow("dsi_profiles") { getDsiProfileSettings() }
+
+    @Synchronized
+    override fun saveDsiProfile(profile: DSiProfile) {
+        require(UUID.fromString(profile.id).toString() == profile.id)
+        require(profile.name.isNotBlank())
+        val current = getDsiProfileSettings()
+        val profiles = current.profiles.toMutableList()
+        val index = profiles.indexOfFirst { it.id == profile.id }
+        if (index < 0) profiles.add(profile) else profiles[index] = profile
+        writeDsiProfileSettings(current.copy(profiles = profiles, defaultProfileId = current.defaultProfileId ?: profile.id.takeIf { current.profiles.isEmpty() }))
+    }
+
+    @Synchronized
+    override fun removeDsiProfile(profileId: String) {
+        writeDsiProfileSettings(getDsiProfileSettings().without(profileId))
+    }
+
+    @Synchronized
+    override fun setDefaultDsiProfile(profileId: String?) {
+        val current = getDsiProfileSettings()
+        require(profileId == null || current.profiles.any { it.id == profileId })
+        writeDsiProfileSettings(current.copy(defaultProfileId = profileId))
+    }
+
+    private fun writeDsiProfileSettings(settings: DSiProfileSettings) {
+        preferences.edit { putString("dsi_profiles", json.encodeToString(DSiProfileSettings.serializer(), settings)) }
     }
 
     override fun clearBiosDirectories() {
@@ -591,6 +645,7 @@ class SharedPreferencesSettingsRepository(
             remove("bios_dir")
             remove("dsi_bios_dir")
         }
+        setDefaultDsiProfile(null)
     }
 
     override fun isDldiSdCardEnabled(): Boolean {
@@ -1703,9 +1758,8 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun setDsiBiosDirectory(directoryUri: Uri) {
-        preferences.edit {
-            putStringSet("dsi_bios_dir", setOf(directoryUri.toString()))
-        }
+        val profile = getDsiProfile()
+        saveDsiProfile(DSiProfile(profile?.id ?: UUID.randomUUID().toString(), profile?.name ?: context.getString(me.magnum.melonds.R.string.dsi_profile_initial), directoryUri.toString()))
     }
 
     override fun addRomSearchDirectory(directoryUri: Uri) {

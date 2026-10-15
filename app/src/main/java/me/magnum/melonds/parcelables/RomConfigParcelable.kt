@@ -36,6 +36,7 @@ class RomConfigParcelable : Parcelable {
             retroArchShaderPresetPath = parcel.readString(),
             retroArchShaderParameters = parcel.readString(),
             iconSource = parcel.readNullableEnum(RomIconSource.entries) ?: RomIconSource.DEFAULT,
+            dsiProfileId = parcel.readString(),
         )
     }
 
@@ -55,6 +56,7 @@ class RomConfigParcelable : Parcelable {
         dest.writeString(romConfig.retroArchShaderPresetPath)
         dest.writeString(romConfig.retroArchShaderParameters)
         dest.writeNullableEnum(romConfig.iconSource)
+        dest.writeString(romConfig.dsiProfileId)
     }
 
     override fun describeContents(): Int {

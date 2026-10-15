@@ -89,7 +89,7 @@ shared uvec4 captureRecipeGroupMetadata;
 shared uvec4 captureRecipeGroupRoute;
 shared uvec4 captureRecipeGroupLineRenderKey;
 
-const uint kCausalAbiVersion          = 5u;
+const uint kCausalAbiVersion          = 6u;
 const uint kCausalHeaderRoutesValid   = 1u << 0u;
 const uint kCausalHeaderFullValid     = 1u << 1u;
 const uint kCausalHeaderAllNative     = 1u << 2u;
@@ -109,7 +109,8 @@ const uint kCausalCaptureRecipeHeaderOffsetWords = 406040u;
 const uint kCausalCaptureRecipeLineOffsetWords = 406056u;
 const uint kCausalCaptureRecipePixelOffsetWords = 407592u;
 const uint kCausalCaptureMaterialOffsetWords = 997416u;
-const uint kCausalTotalWords          = 1021992u;
+const uint kCausalCaptureBackgroundOffsetWords = 1021992u;
+const uint kCausalTotalWords          = 1218600u;
 
 bool causalRouteHeaderValid()
 {
@@ -296,7 +297,7 @@ bool causalCaptureRecipeHeader(out uvec4 productKey,
         && lineCount == 192u
 
         && (flags & 0x7Fu) == 0x7Fu
-        && (flags & ~0x1FFu) == 0u
+        && (flags & ~0x3FFu) == 0u
         && specializedEncodingValid
         && (!sourceAOnly || sourceAOnlyFormula)
         && renderKeyPresent == hasSourceARenderKey;
@@ -1149,6 +1150,47 @@ bool sampleCaptureRecipeSourceB(uint outputX, uint outputY,
     return true;
 }
 
+bool loadCaptureBackground(uint x, uint y, uvec4 productKey, uint flags,
+                           out uvec4 operand)
+{
+    operand = uvec4(0u);
+    if ((flags & (1u << 9u)) == 0u)
+        return true;
+    if (x >= 256u || y >= 192u)
+        return false;
+    uint word = kCausalCaptureBackgroundOffsetWords + (y * 256u + x) * 4u;
+    operand = uvec4(causal[word], causal[word + 1u],
+                     causal[word + 2u], causal[word + 3u]);
+    if ((operand.x | operand.y) == 0u)
+        return all(equal(operand, uvec4(0u)));
+    return operand.w >= 1u && operand.w <= 4u
+        && (operand.z & 0xFFFFu) < 256u && (operand.z >> 16u) < 192u
+        && h5SlotCertificada(operand.w - 1u,
+            productKey.x, productKey.y, operand.x, operand.y);
+}
+
+bool sampleCaptureBackground(uint outputX, uint outputY, uint outputScale,
+                             uvec4 productKey, uint flags,
+                             inout uvec4 recipe)
+{
+    uvec4 operand;
+    if (!loadCaptureBackground(outputX / outputScale, outputY / outputScale,
+                               productKey, flags, operand))
+        return false;
+    if ((operand.x | operand.y) == 0u)
+        return true;
+    ivec2 source = ivec2(
+        int((operand.z & 0xFFFFu) * outputScale + outputX % outputScale),
+        int((operand.z >> 16u) * outputScale + outputY % outputScale));
+    uint packed = h5ImagePackRgb555(h5LeeSlot(operand.w - 1u, source));
+    uint rgb666 = ((packed & 0x1Fu) << 1u)
+        | (((packed >> 5u) & 0x1Fu) << 9u)
+        | (((packed >> 10u) & 0x1Fu) << 17u);
+    recipe.x = (recipe.x & 0xFF000000u) | rgb666;
+    recipe.y = (recipe.y & 0xFF000000u) | rgb666;
+    return true;
+}
+
 uint resolveCaptureProductPacked(uvec4 recipeA, uint sourceAKind,
                                  uint d3d, uint sourceB,
                                  uint captureParameters)
@@ -1290,6 +1332,7 @@ uint causalBuildLiveLineDescriptor(uint physicalScreen, uint physicalLine,
 const uint kB1Blend2dOver3d = 1u << 22u;
 const uint kB1Needs3d = (1u << 18u) | kB1Blend2dOver3d;
 const uint kB1Precomposed3d = 1u << 23u;
+const uint kB1Captured3dBackground = 1u << 24u;
 
 ivec3 composePrecomposed3d(uint operand, ivec3 color3d, uint alpha3d)
 {
@@ -1322,6 +1365,23 @@ ivec3 blend2dOver3d(uint foreground, ivec3 background)
     int eva = int((foreground >> 18u) & 0x1Fu);
     int evb = int((foreground >> 23u) & 0x1Fu);
     return min(ivec3(63), (top * eva + background * evb + 8) >> 4);
+}
+
+ivec3 resolveCaptured3dBackground(inout uint operand, uint outputScale,
+                                  uint subX, uint subY)
+{
+    uint sourceX = operand & 0xFFu;
+    uint sourceY = (operand >> 8u) & 0xFFu;
+    uint slot = (operand >> 16u) & 0x3u;
+    vec4 captured = h5LeeSlot(slot, ivec2(
+        int(sourceX * outputScale + subX),
+        int(sourceY * outputScale + subY)));
+    ivec3 color = ivec3(int(uint(captured.b * 255.0 + 0.5) >> 2u),
+                        int(uint(captured.g * 255.0 + 0.5) >> 2u),
+                        int(uint(captured.r * 255.0 + 0.5) >> 2u));
+    operand = (operand & ~0x3FFFFu) | uint(color.r)
+        | (uint(color.g) << 6u) | (uint(color.b) << 12u);
+    return color;
 }
 
 struct FinalCellState
@@ -1387,6 +1447,8 @@ void storeFinalSubpixel(
     ivec3 baseB1 = ivec3(int(w0 & 0x3Fu), int((w0 >> 6u) & 0x3Fu),
                          int((w0 >> 12u) & 0x3Fu));
     ivec3 colorF = baseB1;
+    if ((w0 & kB1Captured3dBackground) != 0u)
+        colorF = resolveCaptured3dBackground(w1, outputScale, subX, subY);
     bool brilloB2 = true;
     uint carrilSonda = 0u;
     bool capa3dResuelta = false;
@@ -1413,8 +1475,6 @@ void storeFinalSubpixel(
         carrilSonda = 1u;
     }
     if (!capa3dResuelta
-        && ((w0 & (1u << 21u)) != 0u
-            || (descriptorCompacto & (1u << 28u)) != 0u)
         && (descriptorCompacto & (1u << 29u)) != 0u
         && (w0 & kB1Needs3d) != 0u)
     {
@@ -1649,6 +1709,9 @@ void main()
         exact = exact && sampleCaptureRecipeSourceB(
             xSalida, filaSalida, outputScale, false,
             recipeB, recipeC, sourceB);
+        exact = exact && sampleCaptureBackground(
+            xSalida, filaSalida, outputScale,
+            captureRecipeGroupProductKey, headerMetadata.w, recipeA);
         if (!exact)
             return;
         uint sourceAKind = (route.x >> 8u) & 0xFu;
@@ -1707,6 +1770,10 @@ void main()
                 xSalida, filaSalida,
                 sourceAOnly,
                 recipeA, recipeB, recipeC);
+        uvec4 backgroundOperand;
+        recipeExact = recipeExact && loadCaptureBackground(
+            xSalida, filaSalida, productKey, headerMetadata.w,
+            backgroundOperand);
         uint sourceAKind = (route.x >> 8u) & 0xFu;
         uint nativeSourceB = recipeC.y & 0xFFFFu;
         uint native3d = (route.x & (1u << 22u)) != 0u
@@ -1905,7 +1972,8 @@ void main()
                 bool exacto = (control & (1u << 6u)) != 0u;
                 const uint supportedReplaceMask = 0x7u
                     | (0x3u << 3u) | (1u << 6u) | (0x1Fu << 18u);
-                bool replaceSoportado = compositeOp == 1u && exacto
+                bool replaceSoportado = (compositeOp == 1u || compositeOp == 5u)
+                    && exacto
                     && handle >= 2u && postEffect <= 2u
                     && lineageCompacta.y == 0u && lineageCompacta.w == 0u
                     && (control & ~supportedReplaceMask) == 0u;
@@ -1932,11 +2000,23 @@ void main()
                             slot, productIdentity.x, productIdentity.y,
                             productIdentity.z, productIdentity.w))
                     {
-                        uint evy = (control >> 18u) & 0x1Fu;
-                        w0Compacto |= 1u << 20u;
-                        w1Compacto = sourceX | (sourceY << 8u)
-                            | (slot << 16u) | (postEffect << 18u)
-                            | (evy << 20u);
+                        if (compositeOp == 5u)
+                        {
+                            if ((w0Compacto & kB1Needs3d) != 0u)
+                            {
+                                w0Compacto |= kB1Captured3dBackground;
+                                w1Compacto = (w1Compacto & ~0x3FFFFu)
+                                    | sourceX | (sourceY << 8u) | (slot << 16u);
+                            }
+                        }
+                        else
+                        {
+                            uint evy = (control >> 18u) & 0x1Fu;
+                            w0Compacto |= 1u << 20u;
+                            w1Compacto = sourceX | (sourceY << 8u)
+                                | (slot << 16u) | (postEffect << 18u)
+                                | (evy << 20u);
+                        }
                     }
                 }
             }
@@ -2051,6 +2131,9 @@ void main()
         ivec3 baseB1 = ivec3(int(w0 & 0x3Fu), int((w0 >> 6u) & 0x3Fu),
                              int((w0 >> 12u) & 0x3Fu));
         ivec3 colorF = baseB1;
+        if ((w0 & kB1Captured3dBackground) != 0u)
+            colorF = resolveCaptured3dBackground(w1, esc,
+                xSalida - x * esc, filaInterna - linea * esc);
         bool brilloB2 = true;
 
         uint fila3d = reg(eng, linea, 26u);
@@ -2081,8 +2164,6 @@ void main()
             carrilSonda = 1u;
         }
         if (!capa3dResuelta
-            && ((w0 & (1u << 21u)) != 0u
-                || (descriptorCompacto & (1u << 28u)) != 0u)
             && (descriptorCompacto & (1u << 29u)) != 0u
             && (w0 & kB1Needs3d) != 0u)
         {
@@ -2760,6 +2841,18 @@ void main()
                                : (0x100u << capaTop);
                 if ((bldcntB1 & target2B1) != 0u)
                     fielB1Flags |= (1u << 19u);
+                else if ((bldcntB1 & 1u) != 0u
+                    && (winmask & 0x20u) != 0u)
+                {
+                    uint efecto3dB1 = (bldcntB1 >> 6u) & 3u;
+                    uint evy3dB1 = min(16u, reg(eng, linea, 22u) & 0x1Fu);
+                    if (efecto3dB1 >= 2u && evy3dB1 > 0u)
+                    {
+                        fielB1Flags |= kB1Precomposed3d;
+                        precomposed3dB1 = ((efecto3dB1 + 1u) << 28u)
+                            | (evy3dB1 << 18u);
+                    }
+                }
             }
             else if (clave3dB1 < segundaClave)
             {

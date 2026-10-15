@@ -61,7 +61,9 @@ class RomDetailsViewModel @Inject constructor(
         retroAchievementsRepository.observeRomCoverIcons(),
         settingsRepository.observeRaCoverEnabled(),
     ) { rom, covers, enabled ->
-        covers[rom.retroAchievementsHash].takeIf { rom.config.iconSource.usesRetroAchievements(enabled) }
+        covers[rom.retroAchievementsHash]
+            ?.takeIf { rom.config.iconSource.usesRetroAchievements(enabled, it.hasAchievements) }
+            ?.url
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
@@ -97,8 +99,9 @@ class RomDetailsViewModel @Inject constructor(
             val globalRuntimeConfig = combine(
                 settingsRepository.observeDefaultConsoleType(),
                 settingsRepository.observeMicSource(),
-            ) { consoleType, micSource ->
-                consoleType to micSource
+                settingsRepository.observeDsiProfileSettings(),
+            ) { consoleType, micSource, dsiProfiles ->
+                Triple(consoleType, micSource, dsiProfiles)
             }
             combine(
                 _romConfig,
@@ -119,7 +122,7 @@ class RomDetailsViewModel @Inject constructor(
                     globalRetroArchShaderParameters = shaderConfig.second,
                     hasValidRetroArchShaderRoot = shaderConfig.third,
                     globalRetroAchievementsEnabled = globalRetroAchievementsEnabled,
-                )
+                ).copy(dsiProfileId = romConfig.dsiProfileId, dsiProfiles = globalRuntimeConfig.third)
             }.collect {
                 uiStateFlow.value = RomConfigUiState.Ready(it)
             }
@@ -164,6 +167,7 @@ class RomDetailsViewModel @Inject constructor(
                 }
             }
             is RomConfigUpdateEvent.CustomNameUpdate -> currentRomConfig.copy(customName = event.customName)
+            is RomConfigUpdateEvent.DSiProfileUpdate -> currentRomConfig.copy(dsiProfileId = event.profileId)
             is RomConfigUpdateEvent.IconSourceUpdate -> currentRomConfig.copy(iconSource = event.iconSource)
             is RomConfigUpdateEvent.VideoRendererUpdate -> {
                 val targetRenderer = event.videoRenderer

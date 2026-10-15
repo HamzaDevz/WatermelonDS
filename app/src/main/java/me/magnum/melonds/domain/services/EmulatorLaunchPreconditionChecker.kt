@@ -24,44 +24,54 @@ class EmulatorLaunchPreconditionChecker(
     private val settingsRepository: SettingsRepository,
 ) {
 
-    suspend fun checkRomLaunchPreconditions(rom: Rom): RomLaunchPreconditionCheckResult {
+    suspend fun checkRomLaunchPreconditions(candidate: Rom): RomLaunchPreconditionCheckResult = withContext(Dispatchers.IO) {
+        val rom = candidate.copy(resolvedDsiProfile = settingsRepository.getDsiProfile(candidate.config.dsiProfileId))
         val renderer = settingsRepository.getEffectiveVideoRenderer(rom.config)
         getRendererValidationFailureOrNull(renderer)?.let {
-            return when (it) {
+            return@withContext when (it) {
                 RendererValidationFailure.UNSUPPORTED -> RomLaunchPreconditionCheckResult.RendererUnsupported(VideoRenderer.VULKAN)
                 RendererValidationFailure.INIT_FAILED -> RomLaunchPreconditionCheckResult.RendererInitFailed(VideoRenderer.VULKAN)
             }
         }
 
+        val configurationDirResult = if (rom.isDsiWareTitle) {
+            configurationDirectoryVerifier.checkDsiConfigurationDirectory(rom.resolvedDsiProfile)
+        } else {
+            getRomConfigurationDirectoryResult(rom)
+        }
+        if (configurationDirResult.status != ConfigurationDirResult.Status.VALID) {
+            return@withContext RomLaunchPreconditionCheckResult.BiosConfigurationIncorrect(configurationDirResult)
+        }
+
         if (rom.isDsiWareTitle) {
             val dsiWareCheckResult = checkDsiWarePreconditions(rom)
             if (dsiWareCheckResult !is RomLaunchPreconditionCheckResult.Success) {
-                return dsiWareCheckResult
+                return@withContext dsiWareCheckResult
             }
         }
 
-        val configurationDirResult = getRomConfigurationDirectoryResult(rom)
-        if (configurationDirResult.status != ConfigurationDirResult.Status.VALID) {
-            return RomLaunchPreconditionCheckResult.BiosConfigurationIncorrect(configurationDirResult)
-        }
-
-        return RomLaunchPreconditionCheckResult.Success(rom)
+        return@withContext RomLaunchPreconditionCheckResult.Success(rom)
     }
 
-    suspend fun checkFirmwareLaunchPreconditions(consoleType: ConsoleType): FirmwareLaunchPreconditionCheckResult {
+    suspend fun checkFirmwareLaunchPreconditions(consoleType: ConsoleType): FirmwareLaunchPreconditionCheckResult = withContext(Dispatchers.IO) {
         getRendererValidationFailureOrNull(settingsRepository.getCurrentVideoRenderer())?.let {
-            return when (it) {
+            return@withContext when (it) {
                 RendererValidationFailure.UNSUPPORTED -> FirmwareLaunchPreconditionCheckResult.RendererUnsupported(VideoRenderer.VULKAN)
                 RendererValidationFailure.INIT_FAILED -> FirmwareLaunchPreconditionCheckResult.RendererInitFailed(VideoRenderer.VULKAN)
             }
         }
 
-        val configurationDirResult = configurationDirectoryVerifier.checkConsoleConfigurationDirectory(consoleType)
+        val profile = settingsRepository.getDsiProfile()
+        val configurationDirResult = if (consoleType == ConsoleType.DSi) {
+            configurationDirectoryVerifier.checkDsiConfigurationDirectory(profile)
+        } else {
+            configurationDirectoryVerifier.checkDsConfigurationDirectory()
+        }
         if (configurationDirResult.status != ConfigurationDirResult.Status.VALID) {
-            return FirmwareLaunchPreconditionCheckResult.BiosConfigurationIncorrect(configurationDirResult)
+            return@withContext FirmwareLaunchPreconditionCheckResult.BiosConfigurationIncorrect(configurationDirResult)
         }
 
-        return FirmwareLaunchPreconditionCheckResult.Success(consoleType)
+        return@withContext FirmwareLaunchPreconditionCheckResult.Success(consoleType, profile)
     }
 
     private suspend fun checkDsiWarePreconditions(rom: Rom): RomLaunchPreconditionCheckResult {
@@ -75,16 +85,13 @@ class EmulatorLaunchPreconditionChecker(
             return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.RomParseError)
         }
 
-        val openNandResult = dsiNandManager.openNand()
-        if (openNandResult.isFailure()) {
-            return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.NandError)
-        }
-
         // The DSi title ID is equal to the game code, but parsed as a Long in big-endian
         val dsiTitleIdByteData = romInfo.gameCode.encodeToByteArray()
         val dsiTitleId = ByteBuffer.wrap(dsiTitleIdByteData).order(ByteOrder.BIG_ENDIAN).getInt().toLong()
-        val isTitleInstalled = dsiNandManager.listTitles().any { it.titleId == dsiTitleId }
-        dsiNandManager.closeNand()
+        val configuration = settingsRepository.getEmulatorConfiguration(rom.config, rom.resolvedDsiProfile)
+        val isTitleInstalled = dsiNandManager.withNand(configuration) {
+            listTitles().any { (it.titleId and 0xFFFFFFFFL) == (dsiTitleId and 0xFFFFFFFFL) }
+        } ?: return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.NandError)
 
         if (!isTitleInstalled) {
             return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.TitleNotInstalled)
@@ -97,16 +104,10 @@ class EmulatorLaunchPreconditionChecker(
         val installedTitleId = rom.installedDsiWareTitleId
             ?: return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.RomParseError)
 
-        val openNandResult = dsiNandManager.openNand()
-        if (openNandResult.isFailure()) {
-            return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.NandError)
-        }
-
-        val isTitleInstalled = try {
-            dsiNandManager.listTitles().any { (it.titleId and 0xFFFFFFFFL) == (installedTitleId and 0xFFFFFFFFL) }
-        } finally {
-            dsiNandManager.closeNand()
-        }
+        val configuration = settingsRepository.getEmulatorConfiguration(rom.config, rom.resolvedDsiProfile)
+        val isTitleInstalled = dsiNandManager.withNand(configuration) {
+            listTitles().any { (it.titleId and 0xFFFFFFFFL) == (installedTitleId and 0xFFFFFFFFL) }
+        } ?: return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.NandError)
 
         if (!isTitleInstalled) {
             return RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed(RomLaunchPreconditionCheckResult.DSiWareTitleValidationFailed.Reason.TitleNotInstalled)
@@ -125,7 +126,11 @@ class EmulatorLaunchPreconditionChecker(
             return ConfigurationDirResult(ConsoleType.DS, ConfigurationDirResult.Status.VALID, emptyArray(), emptyArray())
         }
 
-        return configurationDirectoryVerifier.checkConsoleConfigurationDirectory(romTargetConsoleType)
+        return if (romTargetConsoleType == ConsoleType.DSi) {
+            configurationDirectoryVerifier.checkDsiConfigurationDirectory(rom.resolvedDsiProfile)
+        } else {
+            configurationDirectoryVerifier.checkDsConfigurationDirectory()
+        }
     }
 
     private suspend fun getRendererValidationFailureOrNull(renderer: VideoRenderer): RendererValidationFailure? {

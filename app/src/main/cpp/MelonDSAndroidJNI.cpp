@@ -36,6 +36,7 @@
 #include "ExactLiveGuide.h"
 #include "MelonDSAndroidInterface.h"
 #include "MelonDSAndroidConfiguration.h"
+#include "ConfigurationLog.h"
 #include "MelonDSAndroidCameraHandler.h"
 #include "RetroAchievementsMapper.h"
 #include "renderer/OpenGlRetroArchFilter.h"
@@ -951,6 +952,9 @@ Java_me_magnum_melonds_MelonEmulator_setupEmulatorInternal(JNIEnv* env, jobject 
     MelonDSAndroid::EmulatorConfiguration finalEmulatorConfiguration = MelonDSAndroidConfiguration::buildEmulatorConfiguration(env, emulatorConfiguration);
     if (env->ExceptionCheck())
         return;
+    MelonDSAndroid::ForEachSetting(finalEmulatorConfiguration, [](const std::string& line) {
+        __android_log_print(ANDROID_LOG_INFO, "WatermelonSettings", "%s", line.c_str());
+    });
     fastForwardSpeedMultiplier.store(
         finalEmulatorConfiguration.fastForwardSpeedMultiplier,
         std::memory_order_release);
@@ -3028,6 +3032,9 @@ Java_me_magnum_melonds_MelonEmulator_updateEmulatorConfiguration(JNIEnv* env, jo
     MelonDSAndroid::EmulatorConfiguration newConfiguration = MelonDSAndroidConfiguration::buildEmulatorConfiguration(env, emulatorConfiguration);
     if (env->ExceptionCheck())
         return;
+    MelonDSAndroid::ForEachSetting(newConfiguration, [](const std::string& line) {
+        __android_log_print(ANDROID_LOG_INFO, "WatermelonSettings", "%s", line.c_str());
+    });
 
     fastForwardSpeedMultiplier.store(
         newConfiguration.fastForwardSpeedMultiplier,

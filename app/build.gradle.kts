@@ -60,7 +60,13 @@ android {
         getByName("release") {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            // Odin 3 build: own package so it installs next to the official app, debug key without a keystore.
+            applicationIdSuffix = ".odin3"
+            signingConfig = if (gradleLocalProperties(rootDir, providers)["MELONDS_KEYSTORE"] != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             externalNativeBuild {
                 cmake {
                     arguments("-DMELONDS_ANDROID_DEBUG_BUILD=0")

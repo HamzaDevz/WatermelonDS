@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.os.SystemClock
 import android.net.Uri
 import android.util.Log
-import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -324,8 +323,7 @@ class AndroidEmulatorManager(
                     return@withContext loadInstalledDsiWareShortcut(rom, cheats)
                 }
 
-                val fileRomDocument = DocumentFile.fromSingleUri(context, rom.uri) ?: return@withContext RomLaunchResult.LaunchFailedRomNotFound
-                val fileRomProcessor = romFileProcessorFactory.getFileRomProcessorForDocument(fileRomDocument)
+                val fileRomProcessor = romFileProcessorFactory.getFileRomProcessorForDocument(rom.uri)
                 val romUri = fileRomProcessor?.getRealRomUri(rom) ?: return@withContext RomLaunchResult.LaunchFailedRomNotSupported
                 val sram = try {
                     sramProvider.getSramForRom(rom)

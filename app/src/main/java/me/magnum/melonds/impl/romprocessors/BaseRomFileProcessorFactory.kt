@@ -1,10 +1,12 @@
 package me.magnum.melonds.impl.romprocessors
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import me.magnum.melonds.common.romprocessors.RomFileProcessor
 import me.magnum.melonds.common.romprocessors.RomFileProcessorFactory
+import java.io.File
 
 abstract class BaseRomFileProcessorFactory(private val context: Context) : RomFileProcessorFactory {
     /**
@@ -29,7 +31,12 @@ abstract class BaseRomFileProcessorFactory(private val context: Context) : RomFi
     }
 
     override fun getFileRomProcessorForDocument(romUri: Uri): RomFileProcessor? {
-        val romDocument = DocumentFile.fromSingleUri(context, romUri) ?: return null
+        // a file:// ROM (opened from outside the ROM folders, as odin3-lab does): a single document only names content:// ones
+        val romDocument = if (romUri.scheme == ContentResolver.SCHEME_FILE) {
+            romUri.path?.let { DocumentFile.fromFile(File(it)) }
+        } else {
+            DocumentFile.fromSingleUri(context, romUri)
+        } ?: return null
         return getFileRomProcessorForDocument(romDocument)
     }
 }

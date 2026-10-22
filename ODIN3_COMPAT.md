@@ -21,3 +21,4 @@ Labo commun `odin3-lab` (VM ARM64 pages 4 Ko + profil Vulkan de l'Adreno 830) po
 
 | Jeu | Statut | Vu jusqu'à | Mesure | Notes | Testé le | Build |
 |---|---|---|---|---|---|---|
+| Crash of the Titans (France) | 🟢 | premier niveau (tutoriel de Cortex), 30 s en jeu après menus et cinématique | 16x Vulkan (4096x3072) : 60 fps, 0 frame perdue, GPU 3D 6,4 ms/frame, CPU rendu 2,1 ms ; 1x logiciel : 60 fps, 0 frame perdue | captures identiques à la VM du labo (même contenu, léger décalage d'animation) ; son non vérifié | 2026-10-22 | odin3 65637d5 |

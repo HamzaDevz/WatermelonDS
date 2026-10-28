@@ -65,7 +65,7 @@ object MelonModule {
     @Provides
     @Singleton
     fun provideSettingsRepository(@ApplicationContext context: Context, sharedPreferences: SharedPreferences, controllerConfigurationFactory: ControllerConfigurationFactory, json: Json, uriHandler: UriHandler, settingsBackupManager: SettingsBackupManager, retroArchShaderLibraryManager: RetroArchShaderLibraryManager): SettingsRepository {
-        return SharedPreferencesSettingsRepository(context, LabPreferences.overlay(sharedPreferences), controllerConfigurationFactory, json, uriHandler, CoroutineScope(Dispatchers.IO), settingsBackupManager, retroArchShaderLibraryManager)
+        return SharedPreferencesSettingsRepository(context, LabPreferences.overlay(Odin3Defaults.apply(sharedPreferences)), controllerConfigurationFactory, json, uriHandler, CoroutineScope(Dispatchers.IO), settingsBackupManager, retroArchShaderLibraryManager)
     }
 
     @Provides

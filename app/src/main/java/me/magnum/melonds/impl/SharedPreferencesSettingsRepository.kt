@@ -422,7 +422,7 @@ class SharedPreferencesSettingsRepository(
     }
 
     override fun isVulkanDrsEnabled(): Boolean {
-        return preferences.getBoolean("video_vulkan_drs", false)
+        return preferences.getBoolean("video_vulkan_drs", true)
     }
 
     override fun observeVulkanDrsEnabled(): Flow<Boolean> {

@@ -154,7 +154,7 @@
                 android:title="@string/video_vulkan_drs"
                 android:summary="@string/video_vulkan_drs_summary"
                 app:iconSpaceReserved="false"
-                android:defaultValue="false" />
+                android:defaultValue="true" />
 
         <ListPreference
                 android:key="rendered_ir_position"
